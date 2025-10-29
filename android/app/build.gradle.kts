@@ -8,8 +8,7 @@ plugins {
 android {
     namespace = "com.example.mywordclock"
     compileSdk = flutter.compileSdkVersion
->>>>>>> 89263725daccff0f00bdf8a088a0bff006b22a3e
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

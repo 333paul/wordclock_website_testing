@@ -27,18 +27,73 @@ class HomeScaffold extends StatefulWidget {
 
 class _HomeScaffoldState extends State<HomeScaffold> {
   bool powerOn = true;
+  bool newChanges = true;
 
   @override
   Widget build(BuildContext context) {
+    // decide wide layout early for AppBar buttons
+    final bool wideAtAppBar = MediaQuery.of(context).size.width >= 800;
+
+    const double appBarButtonHeight = 36.0;
+    Widget labeledButton(
+      IconData icon,
+      String label,
+      VoidCallback onPressed, {
+      bool active = false,
+    }) {
+      return OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(
+          icon,
+          color:
+              icon == Icons.check
+                  ? Colors.black
+                  : (active ? Colors.red : Colors.green),
+          size: 20,
+        ),
+        label: Text(label, style: const TextStyle(color: Colors.black87)),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(64, appBarButtonHeight),
+          side: BorderSide(color: Colors.grey.shade300, width: 1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        leadingWidth: 50,
-        leading: IconButton(
-          padding: EdgeInsets.zero,
-          icon: const Icon(Icons.check, size: 25.0, color: Colors.black),
-          onPressed: () => Navigator.maybePop(context),
-        ),
+        leadingWidth: wideAtAppBar ? 150 : 50,
+        leading:
+            wideAtAppBar
+                ? Padding(
+                  padding: const EdgeInsets.only(left: 12.0),
+                  child: Center(
+                    child: SizedBox(
+                      height: appBarButtonHeight,
+                      child: labeledButton(Icons.check, 'Übernehmen', () {
+                        // apply / send settings (placeholder)
+                        Navigator.maybePop(context);
+                      }),
+                    ),
+                  ),
+                )
+                : (newChanges
+                    ? IconButton(
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(
+                        Icons.check,
+                        size: 25.0,
+                        color: Colors.black,
+                      ),
+                      onPressed: () => Navigator.maybePop(context),
+                    )
+                    : null),
         title: const Text(
           'WORDCLOCK',
           style: TextStyle(
@@ -50,27 +105,47 @@ class _HomeScaffoldState extends State<HomeScaffold> {
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          SizedBox(
-            width: 50,
-            child: IconButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => setState(() => powerOn = !powerOn),
-              icon: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                transitionBuilder:
-                    (child, anim) =>
-                        FadeTransition(opacity: anim, child: child),
-                child: Icon(
-                  Icons.power_settings_new,
-                  key: ValueKey<bool>(powerOn),
-                  color: powerOn ? Colors.green : Colors.red,
-                  size: 25.0,
-                ),
-              ),
-            ),
-          ),
-        ],
+        actions:
+            wideAtAppBar
+                ? [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12.0),
+                    child: Center(
+                      child: SizedBox(
+                        height: appBarButtonHeight,
+                        child: labeledButton(
+                          powerOn
+                              ? Icons.power_settings_new
+                              : Icons.power_settings_new,
+                          powerOn ? 'Ausschalten' : 'Einschalten',
+                          () => setState(() => powerOn = !powerOn),
+                          active: powerOn,
+                        ),
+                      ),
+                    ),
+                  ),
+                ]
+                : [
+                  SizedBox(
+                    width: 50,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () => setState(() => powerOn = !powerOn),
+                      icon: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        transitionBuilder:
+                            (child, anim) =>
+                                FadeTransition(opacity: anim, child: child),
+                        child: Icon(
+                          Icons.power_settings_new,
+                          key: ValueKey<bool>(powerOn),
+                          color: powerOn ? Colors.red : Colors.green,
+                          size: 25.0,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
       ),
       body: SafeArea(
         child: LayoutBuilder(
@@ -83,8 +158,11 @@ class _HomeScaffoldState extends State<HomeScaffold> {
             final double imageMinSide = wide ? 200.0 : 120.0;
             final double imageMaxSide = wide ? 420.0 : 360.0;
 
-            const double columnHorizontalPadding = 16.0;
-            const double verticalDividerWidth = 32.0;
+            // horizontal gutter inside each column (left/right)
+            const double columnHorizontalPadding = 12.0;
+            // total width reserved for the divider area between columns. Make this
+            // smaller so the visible line isn't far away from the content.
+            const double verticalDividerWidth = 12.0;
 
             // Bild-Widget (verwendet die berechnete side)
             Widget imageBox(double side) {
@@ -108,8 +186,9 @@ class _HomeScaffoldState extends State<HomeScaffold> {
               return SingleChildScrollView(
                 padding: const EdgeInsets.only(top: 10, bottom: 24),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: columnHorizontalPadding,
+                  // only add horizontal padding for the narrow layout
+                  padding: EdgeInsets.symmetric(
+                    horizontal: cardWidth == null ? columnHorizontalPadding : 0,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -200,16 +279,20 @@ class _HomeScaffoldState extends State<HomeScaffold> {
               // mobile / narrow layout: single column
               return leftColumn();
             } else {
-              // wide layout: compute per-column available width and clamp to image min/max
+              // wide layout: compute per-column available width. Each column will
+              // contain: [gutter | content | gutter] so that the distance from the
+              // content edges to both the window edges and the divider equals
+              // `columnHorizontalPadding`.
               final double columnAvailable =
                   (constraints.maxWidth - verticalDividerWidth) / 2;
-              // inner available inside padding (left/right padding)
-              final double innerAvailable = (columnAvailable -
+
+              // content width inside a column after reserving left/right gutter
+              final double contentWidth = (columnAvailable -
                       (2 * columnHorizontalPadding))
                   .clamp(0.0, double.infinity);
 
               // Side wird mit dynamischen min/max geclamped (unterscheidet mobile/pc)
-              final double side = innerAvailable.clamp(
+              final double side = contentWidth.clamp(
                 imageMinSide,
                 imageMaxSide,
               );
@@ -217,8 +300,21 @@ class _HomeScaffoldState extends State<HomeScaffold> {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // linker Bereich: Cards (gleich breit wie rechter Bereich) -> übergebe cardWidth = side
-                  Expanded(child: leftColumn(cardWidth: side)),
+                  // linker Bereich: feste Breite = columnAvailable
+                  SizedBox(
+                    width: columnAvailable,
+                    child: SizedBox(
+                      height: constraints.maxHeight,
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: columnHorizontalPadding,
+                          ),
+                          child: imageBox(side),
+                        ),
+                      ),
+                    ),
+                  ),
 
                   // vertikaler Trenner mit symmetrischem Abstand
                   const VerticalDivider(
@@ -229,18 +325,14 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                     color: Color(0xFFE9EEF3),
                   ),
 
-                  // rechter Bereich: Bild mit derselben side
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.only(top: 10, bottom: 24),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: columnHorizontalPadding,
-                        ),
-                        child: Column(
-                          children: [const SizedBox(height: 8), imageBox(side)],
-                        ),
+                  // rechter Bereich: feste Breite = columnAvailable -> Cards mit contentWidth
+                  SizedBox(
+                    width: columnAvailable,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: columnHorizontalPadding,
                       ),
+                      child: leftColumn(cardWidth: side),
                     ),
                   ),
                 ],
