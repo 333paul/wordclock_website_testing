@@ -36,7 +36,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
         leadingWidth: 50,
         leading: IconButton(
           padding: EdgeInsets.zero,
-          icon: const Icon(Icons.sync, size: 25.0, color: Colors.black),
+          icon: const Icon(Icons.check, size: 25.0, color: Colors.black),
           onPressed: () => Navigator.maybePop(context),
         ),
         title: const Text(
