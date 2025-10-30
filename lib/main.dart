@@ -29,14 +29,43 @@ class HomeScaffold extends StatefulWidget {
 }
 
 class _HomeScaffoldState extends State<HomeScaffold> {
-  bool powerOn = true;
-  bool newChanges = true;
+  // Globale Parameter
+  bool powerOn = true; // Uhr ein/aus
+  bool newChanges = true; // Änderungen vorhanden
+  int currentTime = 0;
 
-  //Visualisierungs-Parameter
+  // Verbindungs-Parameter
+  bool LoginSaved = false;
+  String Ssid = "";
+  String Password = "";
+  int ConfigSaved = 0;
+
+  // Visualisierungs-Parameter
   double brightness = 70;
   int selectedColor_RED = 255;
   int selectedColor_GREEN = 255;
   int selectedColor_BLUE = 255;
+
+  // Automatisierungs-Parameter
+  int EnableNightMode = 0; //Automatisches Ein/Ausschalten
+  int TimeDisplayOff = 0; //Zeit für Uhr aus
+  int TimeDisplayOn = 0; //Zeit für Uhr ein
+
+  // Wecker-Parameter
+  int AlarmEnable = 0; //Wecker ein/aus
+  int AlarmTime = 0; //Zeit zum Auslösen des Weckers
+
+  // Timer-Parameter
+  int TimerEnable = 0; //Timer ein/aus
+  int TimerDuration = 0; //Timer Dauer in Minuten
+
+  // Offline-Modus Parameter
+  int OfflineMode = 0; //Offline Modus ein/aus
+  int SelectedTime = 0; //Ausgewählte Zeit im Offline Modus
+
+  // Benachrichtigungs-Parameter
+  int NotificationEnable = 0; //Benachrichtigungen ein/aus
+  int NewNotification = 0; //Neue Benachrichtigung
 
   @override
   void initState() {
