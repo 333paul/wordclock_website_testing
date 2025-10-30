@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'cards/card_visualisation.dart' as visual;
 import 'cards/card_connections.dart' as conn;
 import 'cards/card_notification.dart' as notif;
+import 'cards/card_timer.dart' as timer;
 
 void main() {
   runApp(const MainApp());
@@ -60,7 +61,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
 
   // Timer-Parameter
   int TimerEnable = 0; //Timer ein/aus
-  int TimerDuration = 0; //Timer Dauer in Minuten
+  int TimerDuration = 0; //Timer Dauer in Sekunden (sourced from TimerCard)
 
   // Offline-Modus Parameter
   int OfflineMode = 0; //Offline Modus ein/aus
@@ -529,6 +530,18 @@ class _HomeScaffoldState extends State<HomeScaffold> {
           }),
     );
   }
+
+  // Build the timer card using this state's canonical timer fields so the
+  // TimerCard can update the state via callbacks.
+  Widget card_timer() {
+    return timer.TimerCard(
+      timerEnable: TimerEnable,
+      onTimerEnableChanged: (val) => setState(() => TimerEnable = val),
+      // TimerCard reports duration in seconds; store directly in TimerDuration
+      onTimerDurationChanged:
+          (seconds) => setState(() => TimerDuration = seconds),
+    );
+  }
 }
 
 // --- Cards: keine horizontalen Margins mehr, Spalten-Padding sorgt für Abstand ---
@@ -562,5 +575,4 @@ Widget cardBase(String title) {
 
 Widget card_automation() => cardBase('Automation');
 Widget card_alarm() => cardBase('Alarm');
-Widget card_timer() => cardBase('Timer');
 Widget card_offline_mode() => cardBase('Offline Mode');
