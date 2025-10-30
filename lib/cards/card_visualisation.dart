@@ -1,14 +1,9 @@
 import 'package:flutter/material.dart';
 
-// A modern, interactive visualization card:
-// - Title "Darstellung" top-left
-// - Brightness section with label + slider (swipe/drag)
-// - Color style section with 10 square color swatches in a horizontal
-//   scrollable row; tap to select. Selected swatch shows a checkmark.
-
-/// VisualisationCard is the exported widget. It receives the current
-/// brightness and selected color from the parent and reports changes via
-/// callbacks so the parent (main.dart) can persist them.
+/// Modern visualisation card:
+/// - "Darstellung" title
+/// - Brightness slider (with smoother update)
+/// - Color palette with tap selection
 class VisualisationCard extends StatefulWidget {
   const VisualisationCard({
     Key? key,
@@ -16,6 +11,8 @@ class VisualisationCard extends StatefulWidget {
     required this.onBrightnessChanged,
     required this.color,
     required this.onColorChanged,
+    this.brightnessNotifier,
+    this.colorNotifier,
   }) : super(key: key);
 
   final double brightness;
@@ -23,23 +20,78 @@ class VisualisationCard extends StatefulWidget {
   final Color color;
   final ValueChanged<Color> onColorChanged;
 
+  /// Optional notifiers for optimized local state updates
+  final ValueNotifier<double>? brightnessNotifier;
+  final ValueNotifier<Color>? colorNotifier;
+
   @override
   State<VisualisationCard> createState() => _VisualisationCardState();
 }
 
 class _VisualisationCardState extends State<VisualisationCard> {
-  // a simple palette of 10 colors (feel free to change)
+  late double _localBrightness;
+
+  @override
+  void initState() {
+    super.initState();
+    _localBrightness = widget.brightness;
+    widget.brightnessNotifier?.addListener(_brightnessNotifierListener);
+    widget.colorNotifier?.addListener(_colorNotifierListener);
+  }
+
+  @override
+  void dispose() {
+    widget.brightnessNotifier?.removeListener(_brightnessNotifierListener);
+    widget.colorNotifier?.removeListener(_colorNotifierListener);
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant VisualisationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // keep local brightness in sync when parent updates externally
+    if (oldWidget.brightness != widget.brightness) {
+      _localBrightness = widget.brightness;
+    }
+
+    // re-register notifiers if changed
+    if (oldWidget.brightnessNotifier != widget.brightnessNotifier) {
+      oldWidget.brightnessNotifier?.removeListener(_brightnessNotifierListener);
+      widget.brightnessNotifier?.addListener(_brightnessNotifierListener);
+      if (widget.brightnessNotifier != null) {
+        _localBrightness = widget.brightnessNotifier!.value;
+      }
+    }
+
+    if (oldWidget.colorNotifier != widget.colorNotifier) {
+      oldWidget.colorNotifier?.removeListener(_colorNotifierListener);
+      widget.colorNotifier?.addListener(_colorNotifierListener);
+    }
+  }
+
+  void _brightnessNotifierListener() {
+    setState(() {
+      _localBrightness = widget.brightnessNotifier!.value;
+    });
+  }
+
+  void _colorNotifierListener() {
+    setState(() {}); // only repaint color swatch selection
+  }
+
+  // palette of 10 muted colors
   final List<Color> _colors = const [
-    Color.fromARGB(255, 255, 243, 224), // Warmweiß (RGB 255,243,224) - #FFF3E0
-    Color.fromARGB(255, 255, 255, 255), // Weiß (RGB 255,255,255) - #FFFFFF
-    Color.fromARGB(255, 230, 190, 40), // gedämpftes Gelb (RGB 230,190,40)
-    Color.fromARGB(255, 200, 110, 35), // gedämpftes Orange (RGB 200,110,35)
-    Color.fromARGB(255, 180, 40, 40), // gedämpftes Rot (RGB 180,40,40)
-    Color.fromARGB(255, 180, 70, 120), // gedämpftes Magenta (RGB 180,70,120)
-    Color.fromARGB(255, 110, 70, 180), // gedämpftes Violett (RGB 110,70,180)
-    Color.fromARGB(255, 60, 110, 180), // gedämpftes Blau (RGB 60,110,180)
-    Color.fromARGB(255, 50, 150, 150), // gedämpftes Cyan/Teal (RGB 50,150,150)
-    Color.fromARGB(255, 50, 150, 80), // gedämpftes Grün (RGB 50,150,80)
+    Color.fromARGB(255, 255, 243, 224),
+    Color.fromARGB(255, 255, 255, 255),
+    Color.fromARGB(255, 230, 190, 40),
+    Color.fromARGB(255, 200, 110, 35),
+    Color.fromARGB(255, 180, 40, 40),
+    Color.fromARGB(255, 180, 70, 120),
+    Color.fromARGB(255, 110, 70, 180),
+    Color.fromARGB(255, 60, 110, 180),
+    Color.fromARGB(255, 50, 150, 150),
+    Color.fromARGB(255, 50, 150, 80),
   ];
 
   @override
@@ -57,7 +109,6 @@ class _VisualisationCardState extends State<VisualisationCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Title
             const Text(
               'Darstellung',
               style: TextStyle(
@@ -68,14 +119,12 @@ class _VisualisationCardState extends State<VisualisationCard> {
             ),
             const SizedBox(height: 12),
 
-            // Content indented a bit to create a modern visual rhythm (title flush,
-            // content slightly inset)
+            // Brightness section
             Padding(
               padding: const EdgeInsets.only(left: 8.0, right: 2.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Brightness section
                   const Text(
                     'Helligkeit',
                     style: TextStyle(
@@ -85,7 +134,6 @@ class _VisualisationCardState extends State<VisualisationCard> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  // Slider wrapped in a Row to show percentage on the right
                   Row(
                     children: [
                       Expanded(
@@ -101,9 +149,6 @@ class _VisualisationCardState extends State<VisualisationCard> {
                             activeTrackColor: Colors.blueGrey,
                             inactiveTrackColor: Colors.grey.shade200,
                             thumbColor: Colors.blueGrey,
-                            // make the value indicator (the popup label when dragging)
-                            // have a black background with white text instead of the
-                            // default theme color (was purple-ish)
                             valueIndicatorColor: Colors.blueGrey,
                             valueIndicatorTextStyle: const TextStyle(
                               color: Colors.white,
@@ -112,10 +157,22 @@ class _VisualisationCardState extends State<VisualisationCard> {
                           child: Slider(
                             min: 0,
                             max: 100,
-                            value: widget.brightness,
                             divisions: 100,
-                            label: '${widget.brightness.round()}%',
-                            onChanged: (v) => widget.onBrightnessChanged(v),
+                            value: _localBrightness,
+                            label: '${_localBrightness.round()}%',
+                            onChanged: (v) {
+                              // reduce rebuild frequency to every ~0.5%
+                              if ((v - _localBrightness).abs() >= 0.5) {
+                                setState(() => _localBrightness = v);
+                              }
+                            },
+                            onChangeEnd: (v) {
+                              if (widget.brightnessNotifier != null) {
+                                widget.brightnessNotifier!.value = v;
+                              } else {
+                                widget.onBrightnessChanged(v);
+                              }
+                            },
                           ),
                         ),
                       ),
@@ -123,7 +180,7 @@ class _VisualisationCardState extends State<VisualisationCard> {
                       SizedBox(
                         width: 34,
                         child: Text(
-                          '${widget.brightness.round()}%',
+                          '${_localBrightness.round()}%',
                           textAlign: TextAlign.right,
                           style: const TextStyle(
                             fontSize: 13,
@@ -135,7 +192,6 @@ class _VisualisationCardState extends State<VisualisationCard> {
                   ),
                   const SizedBox(height: 10),
 
-                  // subtle divider for a modern card sectioning
                   Divider(
                     height: 18,
                     thickness: 1,
@@ -143,7 +199,6 @@ class _VisualisationCardState extends State<VisualisationCard> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Color style section
                   const Text(
                     'Farbstil',
                     style: TextStyle(
@@ -153,68 +208,82 @@ class _VisualisationCardState extends State<VisualisationCard> {
                     ),
                   ),
                   const SizedBox(height: 8),
+
                   SizedBox(
-                    height: 72,
+                    height:
+                        50, // vorher 72 — kompakter, damit quadratische Felder nicht "verloren" wirken
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,
+                      physics: const ClampingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                       itemCount: _colors.length,
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       itemBuilder: (context, i) {
+                        final Color currentColor =
+                            widget.colorNotifier?.value ?? widget.color;
                         final bool selected =
-                            widget.color.value == _colors[i].value;
+                            currentColor.value == _colors[i].value;
                         return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: () => widget.onColorChanged(_colors[i]),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Container(
-                                  width: 56,
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    color: _colors[i],
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      // always show a thin light grey border so the
-                                      // swatches are visible on light backgrounds;
-                                      // when selected, make it a bit stronger.
-                                      color:
-                                          selected
-                                              ? Colors.black26
-                                              : Colors.grey.shade200,
-                                      width: selected ? 2 : 1,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.04),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              overlayColor:
+                                  MaterialStateProperty.resolveWith<Color?>(
+                                    (states) =>
+                                        states.contains(MaterialState.pressed)
+                                            ? Colors.black.withOpacity(0.10)
+                                            : null,
                                   ),
-                                ),
-                                // checkmark overlay when selected
-                                AnimatedOpacity(
-                                  opacity: selected ? 1.0 : 0.0,
-                                  duration: const Duration(milliseconds: 180),
-                                  child: Container(
-                                    width: 28,
-                                    height: 28,
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.45),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.check,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
+                              onTap: () {
+                                if (widget.colorNotifier != null) {
+                                  widget.colorNotifier!.value = _colors[i];
+                                } else {
+                                  widget.onColorChanged(_colors[i]);
+                                }
+                              },
+                              child: Ink(
+                                width: 48, // gleich
+                                height: 48, // gleich → quadratisch
+                                decoration: BoxDecoration(
+                                  color: _colors[i],
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color:
+                                        selected
+                                            ? Colors.black26
+                                            : Colors.grey.shade200,
+                                    width: selected ? 2 : 1,
                                   ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.06),
+                                      blurRadius: 3,
+                                      offset: const Offset(0, 1.5),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                                child:
+                                    selected
+                                        ? Center(
+                                          child: Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(
+                                                0.45,
+                                              ),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        )
+                                        : null,
+                              ),
                             ),
                           ),
                         );

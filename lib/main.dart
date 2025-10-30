@@ -45,6 +45,9 @@ class _HomeScaffoldState extends State<HomeScaffold> {
   int selectedColor_RED = 255;
   int selectedColor_GREEN = 255;
   int selectedColor_BLUE = 255;
+  // Notifiers to avoid frequent full-widget rebuilds during interactions
+  ValueNotifier<double>? brightnessNotifier;
+  ValueNotifier<Color>? colorNotifier;
 
   // Automatisierungs-Parameter
   int EnableNightMode = 0; //Automatisches Ein/Ausschalten
@@ -71,6 +74,62 @@ class _HomeScaffoldState extends State<HomeScaffold> {
   void initState() {
     super.initState();
     _printVisualVars('init');
+    // Initialize notifiers from the canonical state so the visual card can
+    // update them directly without causing a full scaffold rebuild on every
+    // user interaction (slider drag / swatch tap). The listeners update the
+    // canonical ints stored here but intentionally do not call setState.
+    brightnessNotifier = ValueNotifier<double>(brightness);
+    brightnessNotifier!.addListener(_brightnessNotifierListener);
+
+    colorNotifier = ValueNotifier<Color>(
+      Color.fromARGB(
+        255,
+        selectedColor_RED,
+        selectedColor_GREEN,
+        selectedColor_BLUE,
+      ),
+    );
+    colorNotifier!.addListener(_colorNotifierListener);
+    // Precache preview image to avoid decoding jank during first display on mobile.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      precacheImage(
+        const AssetImage('assets/images/wordclock_preview.png'),
+        context,
+      );
+    });
+  }
+
+  void _brightnessNotifierListener() {
+    final v = brightnessNotifier?.value ?? brightness;
+    // update canonical value without triggering a full rebuild; the card
+    // listens to the notifier and will update visually.
+    brightness = v;
+    _printVisualVars('brightness-notifier');
+  }
+
+  void _colorNotifierListener() {
+    final c =
+        colorNotifier?.value ??
+        Color.fromARGB(
+          255,
+          selectedColor_RED,
+          selectedColor_GREEN,
+          selectedColor_BLUE,
+        );
+    selectedColor_RED = c.red;
+    selectedColor_GREEN = c.green;
+    selectedColor_BLUE = c.blue;
+    _printVisualVars('color-notifier');
+  }
+
+  @override
+  void dispose() {
+    // remove our listeners and dispose the notifiers we created
+    brightnessNotifier?.removeListener(_brightnessNotifierListener);
+    colorNotifier?.removeListener(_colorNotifierListener);
+    brightnessNotifier?.dispose();
+    colorNotifier?.dispose();
+    super.dispose();
   }
 
   void _printVisualVars([String when = '']) {
@@ -89,7 +148,6 @@ class _HomeScaffoldState extends State<HomeScaffold> {
     _printVisualVars('after setState');
   }
 
-  @override
   Widget build(BuildContext context) {
     // decide wide layout early for AppBar buttons
     final bool wideAtAppBar = MediaQuery.of(context).size.width >= 800;
@@ -281,6 +339,8 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                             width: cardWidth,
                             child: visual.VisualisationCard(
                               brightness: brightness,
+                              brightnessNotifier: brightnessNotifier,
+                              colorNotifier: colorNotifier,
                               onBrightnessChanged:
                                   (v) => setState(() => brightness = v),
                               color: Color.fromARGB(
@@ -301,6 +361,8 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                       if (cardWidth == null)
                         visual.VisualisationCard(
                           brightness: brightness,
+                          brightnessNotifier: brightnessNotifier,
+                          colorNotifier: colorNotifier,
                           onBrightnessChanged:
                               (v) => setState(() => brightness = v),
                           color: Color.fromARGB(
