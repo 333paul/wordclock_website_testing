@@ -211,7 +211,7 @@ class _VisualisationCardState extends State<VisualisationCard> {
 
                   SizedBox(
                     height:
-                        50, // vorher 72 — kompakter, damit quadratische Felder nicht "verloren" wirken
+                        58, // vorher 72 — kompakter, damit quadratische Felder nicht "verloren" wirken
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,
                       physics: const ClampingScrollPhysics(),
@@ -243,8 +243,8 @@ class _VisualisationCardState extends State<VisualisationCard> {
                                 }
                               },
                               child: Ink(
-                                width: 48, // gleich
-                                height: 48, // gleich → quadratisch
+                                width: 56, // gleich
+                                height: 56, // gleich → quadratisch
                                 decoration: BoxDecoration(
                                   color: _colors[i],
                                   borderRadius: BorderRadius.circular(10),
