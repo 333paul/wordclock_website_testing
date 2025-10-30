@@ -30,6 +30,14 @@ class VisualisationCard extends StatefulWidget {
 
 class _VisualisationCardState extends State<VisualisationCard> {
   late double _localBrightness;
+  // controller + repetition to simulate infinite horizontal scrolling
+  late final ScrollController _swatchScrollController;
+  static const int _repeatFactor = 800; // large enough to feel "infinite"
+  late final int _totalSwatches;
+  static const double _swatchSize = 56.0;
+  static const double _swatchHorizontalPadding =
+      8.0; // left+right from Padding(4)
+  static const double _swatchExtent = _swatchSize + _swatchHorizontalPadding;
 
   @override
   void initState() {
@@ -37,12 +45,20 @@ class _VisualisationCardState extends State<VisualisationCard> {
     _localBrightness = widget.brightness;
     widget.brightnessNotifier?.addListener(_brightnessNotifierListener);
     widget.colorNotifier?.addListener(_colorNotifierListener);
+    // prepare repeated swatch list and place scroll in the middle so user can
+    // swipe both directions and experience a wrap-around effect.
+    _totalSwatches = _colors.length * _repeatFactor;
+    final int initialIndex = _totalSwatches ~/ 2;
+    _swatchScrollController = ScrollController(
+      initialScrollOffset: initialIndex * _swatchExtent,
+    );
   }
 
   @override
   void dispose() {
     widget.brightnessNotifier?.removeListener(_brightnessNotifierListener);
     widget.colorNotifier?.removeListener(_colorNotifierListener);
+    _swatchScrollController.dispose();
     super.dispose();
   }
 
@@ -210,18 +226,19 @@ class _VisualisationCardState extends State<VisualisationCard> {
                   const SizedBox(height: 8),
 
                   SizedBox(
-                    height:
-                        58, // vorher 72 — kompakter, damit quadratische Felder nicht "verloren" wirken
+                    height: 58, // compact
                     child: ListView.builder(
+                      controller: _swatchScrollController,
                       scrollDirection: Axis.horizontal,
                       physics: const ClampingScrollPhysics(),
                       padding: const EdgeInsets.symmetric(horizontal: 6),
-                      itemCount: _colors.length,
+                      itemCount: _totalSwatches,
                       itemBuilder: (context, i) {
+                        final int idx = i % _colors.length;
                         final Color currentColor =
                             widget.colorNotifier?.value ?? widget.color;
                         final bool selected =
-                            currentColor.value == _colors[i].value;
+                            currentColor.value == _colors[idx].value;
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: Material(
@@ -236,17 +253,18 @@ class _VisualisationCardState extends State<VisualisationCard> {
                                             : null,
                                   ),
                               onTap: () {
+                                final Color chosen = _colors[idx];
                                 if (widget.colorNotifier != null) {
-                                  widget.colorNotifier!.value = _colors[i];
+                                  widget.colorNotifier!.value = chosen;
                                 } else {
-                                  widget.onColorChanged(_colors[i]);
+                                  widget.onColorChanged(chosen);
                                 }
                               },
                               child: Ink(
-                                width: 56, // gleich
-                                height: 56, // gleich → quadratisch
+                                width: _swatchSize,
+                                height: _swatchSize,
                                 decoration: BoxDecoration(
-                                  color: _colors[i],
+                                  color: _colors[idx],
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
                                     color:

@@ -1,7 +1,7 @@
-// ignore_for_file: non_constant_identifier_names
-
 import 'package:flutter/material.dart';
 import 'cards/card_visualisation.dart' as visual;
+import 'cards/card_connections.dart' as conn;
+import 'cards/card_notification.dart' as notif;
 
 void main() {
   runApp(const MainApp());
@@ -419,10 +419,19 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                         Center(
                           child: SizedBox(
                             width: cardWidth,
-                            child: card_notification(),
+                            child: notif.NotificationCard(
+                              notificationEnable: NotificationEnable,
+                              onNotificationChanged:
+                                  (v) => setState(() => NotificationEnable = v),
+                            ),
                           ),
                         ),
-                      if (cardWidth == null) card_notification(),
+                      if (cardWidth == null)
+                        notif.NotificationCard(
+                          notificationEnable: NotificationEnable,
+                          onNotificationChanged:
+                              (v) => setState(() => NotificationEnable = v),
+                        ),
                       const SizedBox(height: 12),
                     ],
                   ),
@@ -498,6 +507,28 @@ class _HomeScaffoldState extends State<HomeScaffold> {
       ),
     );
   }
+
+  // Build the connections card using this state's canonical fields so the
+  // callbacks can directly update `Ssid`, `Password` and `LoginSaved`.
+  Widget card_connections() {
+    return conn.EspWifiCard(
+      loginSaved: LoginSaved,
+      ssid: Ssid,
+      password: Password,
+      onConnect:
+          (ssid, password) => setState(() {
+            Ssid = ssid;
+            Password = password;
+            LoginSaved = true;
+          }),
+      onDisconnect:
+          () => setState(() {
+            LoginSaved = false;
+            Ssid = '';
+            Password = '';
+          }),
+    );
+  }
 }
 
 // --- Cards: keine horizontalen Margins mehr, Spalten-Padding sorgt für Abstand ---
@@ -529,9 +560,7 @@ Widget cardBase(String title) {
   );
 }
 
-Widget card_connections() => cardBase('Connections');
 Widget card_automation() => cardBase('Automation');
 Widget card_alarm() => cardBase('Alarm');
 Widget card_timer() => cardBase('Timer');
 Widget card_offline_mode() => cardBase('Offline Mode');
-Widget card_notification() => cardBase('Notification');
