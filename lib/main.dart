@@ -1,4 +1,7 @@
+// ignore_for_file: non_constant_identifier_names
+
 import 'package:flutter/material.dart';
+import 'cards/card_visualisation.dart' as visual;
 
 void main() {
   runApp(const MainApp());
@@ -28,6 +31,34 @@ class HomeScaffold extends StatefulWidget {
 class _HomeScaffoldState extends State<HomeScaffold> {
   bool powerOn = true;
   bool newChanges = true;
+
+  //Visualisierungs-Parameter
+  double brightness = 70;
+  int selectedColor_RED = 255;
+  int selectedColor_GREEN = 255;
+  int selectedColor_BLUE = 255;
+
+  @override
+  void initState() {
+    super.initState();
+    _printVisualVars('init');
+  }
+
+  void _printVisualVars([String when = '']) {
+    debugPrint(
+      'Visual params${when.isNotEmpty ? ' ($when)' : ''}: '
+      'brightness=$brightness, color=($selectedColor_RED, $selectedColor_GREEN, $selectedColor_BLUE)',
+    );
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    // weiterhin normales setState ausführen, danach die aktuellen Werte ausgeben
+    super.setState(() {
+      fn();
+    });
+    _printVisualVars('after setState');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -219,10 +250,43 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                         Center(
                           child: SizedBox(
                             width: cardWidth,
-                            child: card_visualisation(),
+                            child: visual.VisualisationCard(
+                              brightness: brightness,
+                              onBrightnessChanged:
+                                  (v) => setState(() => brightness = v),
+                              color: Color.fromARGB(
+                                255,
+                                selectedColor_RED,
+                                selectedColor_GREEN,
+                                selectedColor_BLUE,
+                              ),
+                              onColorChanged:
+                                  (c) => setState(() {
+                                    selectedColor_RED = c.red;
+                                    selectedColor_GREEN = c.green;
+                                    selectedColor_BLUE = c.blue;
+                                  }),
+                            ),
                           ),
                         ),
-                      if (cardWidth == null) card_visualisation(),
+                      if (cardWidth == null)
+                        visual.VisualisationCard(
+                          brightness: brightness,
+                          onBrightnessChanged:
+                              (v) => setState(() => brightness = v),
+                          color: Color.fromARGB(
+                            255,
+                            selectedColor_RED,
+                            selectedColor_GREEN,
+                            selectedColor_BLUE,
+                          ),
+                          onColorChanged:
+                              (c) => setState(() {
+                                selectedColor_RED = c.red;
+                                selectedColor_GREEN = c.green;
+                                selectedColor_BLUE = c.blue;
+                              }),
+                        ),
                       const SizedBox(height: 12),
                       if (cardWidth != null)
                         Center(
@@ -375,7 +439,6 @@ Widget cardBase(String title) {
 }
 
 Widget card_connections() => cardBase('Connections');
-Widget card_visualisation() => cardBase('Visualisation');
 Widget card_automation() => cardBase('Automation');
 Widget card_alarm() => cardBase('Alarm');
 Widget card_timer() => cardBase('Timer');
