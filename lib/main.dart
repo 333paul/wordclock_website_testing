@@ -31,45 +31,66 @@ class HomeScaffold extends StatefulWidget {
 
 class _HomeScaffoldState extends State<HomeScaffold> {
   // Globale Parameter
-  bool powerOn = true; // Uhr ein/aus
-  bool newChanges = true; // Änderungen vorhanden
-  int currentTime = 0;
+  int powerOn = 1; //Parameter zum Ein/Ausschalten der UhrUhr ein/aus
+  bool newChanges =
+      true; //Änderungen vorhanden (interner Paramter -> nicht im ESP-Code)
 
   // Verbindungs-Parameter
-  bool LoginSaved = false;
-  String Ssid = "";
-  String Password = "";
-  int ConfigSaved = 0;
+  int loginsaved =
+      0; //0 = erstes Mal verbinden/einstellen, 1 = verbunden (bereits in ESP-Code implementiert)
+  String ssid =
+      ""; //SSID des aktuell verbundenen WLANs (bereits in ESP-Code implementiert)
+  String password =
+      ""; //Passwort des aktuell verbundenen WLANs (bereits in ESP-Code implementiert)
 
   // Visualisierungs-Parameter
-  double brightness = 70;
-  int selectedColor_RED = 255;
-  int selectedColor_GREEN = 255;
-  int selectedColor_BLUE = 255;
-  // Notifiers to avoid frequent full-widget rebuilds during interactions
-  ValueNotifier<double>? brightnessNotifier;
-  ValueNotifier<Color>? colorNotifier;
+  double brightness =
+      70; //Helligkeit (wahrscheinlich nur interner Paramter -> wird direkt in RGB-Werte umgesetzt -> nicht im ESP-Code)
+  int selectedColorRed =
+      255; //Rotanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
+  int selectedColorGreen =
+      255; //Grünanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
+  int selectedColorBlue =
+      255; //Blauanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
+  ValueNotifier<Color>? colorNotifier; //Notifier für Farbänderungen
+  ValueNotifier<double>?
+  brightnessNotifier; //Notifier für Helligkeitsänderungen
 
   // Automatisierungs-Parameter
-  int EnableNightMode = 0; //Automatisches Ein/Ausschalten
-  int TimeDisplayOff = 0; //Zeit für Uhr aus
-  int TimeDisplayOn = 0; //Zeit für Uhr ein
+  int enableNightMode =
+      0; //Automatisches Ein/Ausschalten aktivieren/deaktivieren (bereits in ESP-Code implementiert)
+  int displayOffStunden =
+      0; //Stundenzahl der Zeit zum Ausschalten der Uhr (=TimeDisplayOff, bereits in ESP-Code implementiert)
+  int displayOffMinuten = 0; //Minutenzahl der Zeit zum Ausschalten der Uhr
+  int displayOnStunden =
+      0; //Stundenzahl der Zeit zum Einschalten der Uhr (=TimeDisplayOn, bereits in ESP-Code implementiert)
+  int displayOnMinuten = 0; //Minutenzahl der Zeit zum Einschalten der Uhr
 
   // Wecker-Parameter
-  int AlarmEnable = 0; //Wecker ein/aus
-  int AlarmTime = 0; //Zeit zum Auslösen des Weckers
+  int alarmEnable = 0; //Wecker aktiveren/deaktivieren (in ESP-Code: if-Abfrage)
+  int alarmTimeStunden =
+      0; //Stundenzahl der Uhrzeit zum Auslösen des Weckers (in ESP-Code: if-Abfrage mit mezaktstunde und mezaktminute)
+  int alarmTimeMinuten = 0; //Minutenzahl der Uhrzeit zum Auslösen des Weckers
 
   // Timer-Parameter
-  int TimerEnable = 0; //Timer ein/aus
-  int TimerDuration = 0; //Timer Dauer in Sekunden (sourced from TimerCard)
+  int timerEnable = 0; //Timer aktivieren/deaktivieren (in ESP-Code: if-Abfrage)
+  int timerDuration =
+      0; //Timer Dauer in Sekunden (in ESP-Code: eigenen Timer starten oder evtl. Zeit umrechnen und zur Endzeit reagieren?)
 
   // Offline-Modus Parameter
-  int OfflineMode = 0; //Offline Modus ein/aus
-  int SelectedTime = 0; //Ausgewählte Zeit im Offline Modus
+  int offlineMode =
+      0; //Offline Modus aktivieren/deaktiveren (in ESP-Code: if-Abfrage)
+  int utcaktsekunde =
+      0; //aktuelle Sekunde UTC (in ESP-Code wahrscheinlich einfach überschreiben)
+  int utcaktminute =
+      0; //aktuelle Minute UTC (in ESP-Code wahrscheinlich einfach überschreiben)
+  int utcaktstunde =
+      0; //aktuelle Stunde UTC (in ESP-Code wahrscheinlich einfach überschreiben)
 
   // Benachrichtigungs-Parameter
-  int NotificationEnable = 0; //Benachrichtigungen ein/aus
-  int NewNotification = 0; //Neue Benachrichtigung
+  int notificationEnable =
+      0; //Benachrichtigungsanzeige aktivieren/deaktiveren (in ESP-Code: if(NotificationEnable&&NewNotification) dann LED an)
+  int newNotification = 0; //Neue Benachrichtigung
 
   @override
   void initState() {
@@ -79,15 +100,13 @@ class _HomeScaffoldState extends State<HomeScaffold> {
     // update them directly without causing a full scaffold rebuild on every
     // user interaction (slider drag / swatch tap). The listeners update the
     // canonical ints stored here but intentionally do not call setState.
-    brightnessNotifier = ValueNotifier<double>(brightness);
-    brightnessNotifier!.addListener(_brightnessNotifierListener);
 
     colorNotifier = ValueNotifier<Color>(
       Color.fromARGB(
         255,
-        selectedColor_RED,
-        selectedColor_GREEN,
-        selectedColor_BLUE,
+        selectedColorRed,
+        selectedColorGreen,
+        selectedColorBlue,
       ),
     );
     colorNotifier!.addListener(_colorNotifierListener);
@@ -100,35 +119,35 @@ class _HomeScaffoldState extends State<HomeScaffold> {
     });
   }
 
-  void _brightnessNotifierListener() {
-    final v = brightnessNotifier?.value ?? brightness;
-    // update canonical value without triggering a full rebuild; the card
-    // listens to the notifier and will update visually.
-    brightness = v;
-    _printVisualVars('brightness-notifier');
-  }
-
   void _colorNotifierListener() {
     final c =
         colorNotifier?.value ??
         Color.fromARGB(
           255,
-          selectedColor_RED,
-          selectedColor_GREEN,
-          selectedColor_BLUE,
+          selectedColorRed,
+          selectedColorGreen,
+          selectedColorBlue,
         );
-    selectedColor_RED = c.red;
-    selectedColor_GREEN = c.green;
-    selectedColor_BLUE = c.blue;
+    // Compute brightness from the chosen color (average channel luminance)
+    final double factor = ((c.red + c.green + c.blue) / (3.0 * 255.0)).clamp(
+      0.0,
+      1.0,
+    );
+    brightness = (factor * 100.0);
+
+    // Apply the brightness factor to the stored canonical RGB values so
+    // the device receives color components adjusted for brightness.
+    selectedColorRed = (c.red * factor).round();
+    selectedColorGreen = (c.green * factor).round();
+    selectedColorBlue = (c.blue * factor).round();
+
     _printVisualVars('color-notifier');
   }
 
   @override
   void dispose() {
     // remove our listeners and dispose the notifiers we created
-    brightnessNotifier?.removeListener(_brightnessNotifierListener);
     colorNotifier?.removeListener(_colorNotifierListener);
-    brightnessNotifier?.dispose();
     colorNotifier?.dispose();
     super.dispose();
   }
@@ -136,7 +155,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
   void _printVisualVars([String when = '']) {
     debugPrint(
       'Visual params${when.isNotEmpty ? ' ($when)' : ''}: '
-      'brightness=$brightness, color=($selectedColor_RED, $selectedColor_GREEN, $selectedColor_BLUE)',
+      'color=($selectedColorRed, $selectedColorGreen, $selectedColorBlue)',
     );
   }
 
@@ -233,12 +252,11 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                       child: SizedBox(
                         height: appBarButtonHeight,
                         child: labeledButton(
-                          powerOn
-                              ? Icons.power_settings_new
-                              : Icons.power_settings_new,
-                          powerOn ? 'Ausschalten' : 'Einschalten',
-                          () => setState(() => powerOn = !powerOn),
-                          active: powerOn,
+                          Icons.power_settings_new,
+                          (powerOn == 1) ? 'Ausschalten' : 'Einschalten',
+                          () =>
+                              setState(() => powerOn = (powerOn == 1) ? 0 : 1),
+                          active: powerOn == 1,
                         ),
                       ),
                     ),
@@ -249,7 +267,9 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                     width: 50,
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      onPressed: () => setState(() => powerOn = !powerOn),
+                      onPressed:
+                          () =>
+                              setState(() => powerOn = (powerOn == 1) ? 0 : 1),
                       icon: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 200),
                         transitionBuilder:
@@ -257,8 +277,8 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                                 FadeTransition(opacity: anim, child: child),
                         child: Icon(
                           Icons.power_settings_new,
-                          key: ValueKey<bool>(powerOn),
-                          color: powerOn ? Colors.red : Colors.green,
+                          key: ValueKey<int>(powerOn),
+                          color: (powerOn == 1) ? Colors.red : Colors.green,
                           size: 25.0,
                         ),
                       ),
@@ -340,21 +360,22 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                             width: cardWidth,
                             child: visual.VisualisationCard(
                               brightness: brightness,
-                              brightnessNotifier: brightnessNotifier,
-                              colorNotifier: colorNotifier,
                               onBrightnessChanged:
-                                  (v) => setState(() => brightness = v),
+                                  (b) => setState(() {
+                                    brightness = b;
+                                  }),
+                              colorNotifier: colorNotifier,
                               color: Color.fromARGB(
                                 255,
-                                selectedColor_RED,
-                                selectedColor_GREEN,
-                                selectedColor_BLUE,
+                                selectedColorRed,
+                                selectedColorGreen,
+                                selectedColorBlue,
                               ),
                               onColorChanged:
                                   (c) => setState(() {
-                                    selectedColor_RED = c.red;
-                                    selectedColor_GREEN = c.green;
-                                    selectedColor_BLUE = c.blue;
+                                    selectedColorRed = c.red;
+                                    selectedColorGreen = c.green;
+                                    selectedColorBlue = c.blue;
                                   }),
                             ),
                           ),
@@ -362,21 +383,22 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                       if (cardWidth == null)
                         visual.VisualisationCard(
                           brightness: brightness,
-                          brightnessNotifier: brightnessNotifier,
-                          colorNotifier: colorNotifier,
                           onBrightnessChanged:
-                              (v) => setState(() => brightness = v),
+                              (b) => setState(() {
+                                brightness = b;
+                              }),
+                          colorNotifier: colorNotifier,
                           color: Color.fromARGB(
                             255,
-                            selectedColor_RED,
-                            selectedColor_GREEN,
-                            selectedColor_BLUE,
+                            selectedColorRed,
+                            selectedColorGreen,
+                            selectedColorBlue,
                           ),
                           onColorChanged:
                               (c) => setState(() {
-                                selectedColor_RED = c.red;
-                                selectedColor_GREEN = c.green;
-                                selectedColor_BLUE = c.blue;
+                                selectedColorRed = c.red;
+                                selectedColorGreen = c.green;
+                                selectedColorBlue = c.blue;
                               }),
                         ),
                       const SizedBox(height: 12),
@@ -421,17 +443,17 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                           child: SizedBox(
                             width: cardWidth,
                             child: notif.NotificationCard(
-                              notificationEnable: NotificationEnable,
+                              notificationEnable: notificationEnable,
                               onNotificationChanged:
-                                  (v) => setState(() => NotificationEnable = v),
+                                  (v) => setState(() => notificationEnable = v),
                             ),
                           ),
                         ),
                       if (cardWidth == null)
                         notif.NotificationCard(
-                          notificationEnable: NotificationEnable,
+                          notificationEnable: notificationEnable,
                           onNotificationChanged:
-                              (v) => setState(() => NotificationEnable = v),
+                              (v) => setState(() => notificationEnable = v),
                         ),
                       const SizedBox(height: 12),
                     ],
@@ -513,20 +535,20 @@ class _HomeScaffoldState extends State<HomeScaffold> {
   // callbacks can directly update `Ssid`, `Password` and `LoginSaved`.
   Widget card_connections() {
     return conn.EspWifiCard(
-      loginSaved: LoginSaved,
-      ssid: Ssid,
-      password: Password,
+      loginSaved: loginsaved,
+      ssid: ssid,
+      password: password,
       onConnect:
           (ssid, password) => setState(() {
-            Ssid = ssid;
-            Password = password;
-            LoginSaved = true;
+            ssid = ssid;
+            password = password;
+            loginsaved = 1;
           }),
       onDisconnect:
           () => setState(() {
-            LoginSaved = false;
-            Ssid = '';
-            Password = '';
+            loginsaved = 0;
+            ssid = '';
+            password = '';
           }),
     );
   }
@@ -535,11 +557,11 @@ class _HomeScaffoldState extends State<HomeScaffold> {
   // TimerCard can update the state via callbacks.
   Widget card_timer() {
     return timer.TimerCard(
-      timerEnable: TimerEnable,
-      onTimerEnableChanged: (val) => setState(() => TimerEnable = val),
+      timerEnable: timerEnable,
+      onTimerEnableChanged: (val) => setState(() => timerEnable = val),
       // TimerCard reports duration in seconds; store directly in TimerDuration
       onTimerDurationChanged:
-          (seconds) => setState(() => TimerDuration = seconds),
+          (seconds) => setState(() => timerDuration = seconds),
     );
   }
 }

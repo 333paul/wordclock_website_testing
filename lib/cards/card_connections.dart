@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class EspWifiCard extends StatefulWidget {
-  final bool loginSaved;
+  final int loginSaved;
   final String ssid;
   final String password;
   final Function(String ssid, String password) onConnect;
@@ -71,7 +71,7 @@ class _EspWifiCardState extends State<EspWifiCard> {
             const SizedBox(height: 12),
 
             // Aktuelles WLAN
-            if (widget.loginSaved && widget.ssid.isNotEmpty) ...[
+            if ((widget.loginSaved == 1) && widget.ssid.isNotEmpty) ...[
               Text('Verbunden mit: ${widget.ssid}'),
               const SizedBox(height: 6),
               TextButton(

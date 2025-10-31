@@ -19,7 +19,7 @@ class TimerCard extends StatefulWidget {
 
 class _TimerCardState extends State<TimerCard> {
   int _selectedHours = 0;
-  int _selectedMinutes = 1;
+  int _selectedMinutes = 0;
   int _selectedSeconds = 0;
 
   late bool _isRunning;
@@ -28,16 +28,23 @@ class _TimerCardState extends State<TimerCard> {
   int _remainingSeconds = 0;
 
   // 👇 Controller für jedes Wheel
-  final FixedExtentScrollController _hoursController =
-      FixedExtentScrollController();
-  final FixedExtentScrollController _minutesController =
-      FixedExtentScrollController();
-  final FixedExtentScrollController _secondsController =
-      FixedExtentScrollController();
+  // Lazily initialize controllers in initState with the current selected values
+  late final FixedExtentScrollController _hoursController;
+  late final FixedExtentScrollController _minutesController;
+  late final FixedExtentScrollController _secondsController;
 
   @override
   void initState() {
     super.initState();
+    // initialize controllers at the currently selected items so the wheel
+    // shows the correct initial values and selectedItem reflects user input
+    _hoursController = FixedExtentScrollController(initialItem: _selectedHours);
+    _minutesController = FixedExtentScrollController(
+      initialItem: _selectedMinutes,
+    );
+    _secondsController = FixedExtentScrollController(
+      initialItem: _selectedSeconds,
+    );
     _isRunning = widget.timerEnable == 1;
     _remainingSeconds = _totalSeconds;
   }
@@ -63,6 +70,14 @@ class _TimerCardState extends State<TimerCard> {
       widget.onTimerEnableChanged(0);
     } else {
       // Starten
+      // read current wheel positions (in case user pressed Start while
+      // scrolling and onSelectedItemChanged hasn't fired yet)
+      setState(() {
+        _selectedHours = _hoursController.selectedItem;
+        _selectedMinutes = _minutesController.selectedItem;
+        _selectedSeconds = _secondsController.selectedItem;
+      });
+
       final total = _totalSeconds;
       if (total == 0) return;
 
@@ -76,16 +91,20 @@ class _TimerCardState extends State<TimerCard> {
       widget.onTimerDurationChanged(total);
 
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (_remainingSeconds <= 1) {
+        if (_remainingSeconds > 0) {
+          setState(() {
+            _remainingSeconds--;
+            _updateScrollControllers();
+          });
+        }
+
+        if (_remainingSeconds == 0) {
           timer.cancel();
           setState(() {
             _isRunning = false;
             _isFinished = true;
           });
           widget.onTimerEnableChanged(0);
-        } else {
-          setState(() => _remainingSeconds--);
-          _updateScrollControllers(); // 👈 Scrollen aktualisieren
         }
       });
     }
@@ -140,7 +159,7 @@ class _TimerCardState extends State<TimerCard> {
                     child: Text(
                       index.toString().padLeft(2, '0'),
                       style: const TextStyle(
-                        fontSize: 20,
+                        fontSize: 18,
                         fontWeight: FontWeight.w600,
                         color: Colors.black87,
                       ),
@@ -163,9 +182,10 @@ class _TimerCardState extends State<TimerCard> {
     if (_isRunning) {
       buttonText = 'Abbrechen';
       buttonStyle = ElevatedButton.styleFrom(
-        backgroundColor: Colors.grey,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
         minimumSize: const Size(double.infinity, 40),
+        side: BorderSide(color: Colors.black26, width: 1),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8), // 👈 Rundung
         ),
@@ -174,9 +194,9 @@ class _TimerCardState extends State<TimerCard> {
       buttonText = 'Zurücksetzen';
       buttonStyle = OutlinedButton.styleFrom(
         backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        foregroundColor: Colors.green,
         minimumSize: const Size(double.infinity, 40),
-        side: BorderSide(color: Colors.black26, width: 1),
+        side: BorderSide(color: Colors.green, width: 1),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8), // 👈 Rundung
         ),
