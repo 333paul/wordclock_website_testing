@@ -60,6 +60,10 @@ class _TimerCardState extends State<TimerCard> {
         _remainingSeconds = _totalSeconds;
       });
       _updateScrollControllers(); // 👈 Scrollposition zurücksetzen
+      // Notify parent that the timer was reset so main can clear any
+      // canonical timer state if desired.
+      widget.onTimerEnableChanged(0);
+      widget.onTimerDurationChanged(0);
       return;
     }
 
@@ -96,6 +100,9 @@ class _TimerCardState extends State<TimerCard> {
             _remainingSeconds--;
             _updateScrollControllers();
           });
+          // notify parent of remaining time each tick so main.dart can
+          // keep separate hours/minutes/seconds fields in sync
+          widget.onTimerDurationChanged(_remainingSeconds);
         }
 
         if (_remainingSeconds == 0) {
@@ -105,6 +112,7 @@ class _TimerCardState extends State<TimerCard> {
             _isFinished = true;
           });
           widget.onTimerEnableChanged(0);
+          widget.onTimerDurationChanged(0);
         }
       });
     }

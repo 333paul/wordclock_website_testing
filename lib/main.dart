@@ -45,13 +45,13 @@ class _HomeScaffoldState extends State<HomeScaffold> {
 
   // Visualisierungs-Parameter
   double brightness =
-      70; //Helligkeit (wahrscheinlich nur interner Paramter -> wird direkt in RGB-Werte umgesetzt -> nicht im ESP-Code)
+      70; //Helligkeit (-> wird direkt in RGB-Werte umgesetzt -> im ESP-Code um Farbe zurückrechnen zu können)
   int selectedColorRed =
-      255; //Rotanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
+      36; //Rotanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
   int selectedColorGreen =
-      255; //Grünanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
+      36; //Grünanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
   int selectedColorBlue =
-      255; //Blauanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
+      36; //Blauanteil der ausgewählten Farbe (bereits in ESP-Code implementiert)
   ValueNotifier<Color>? colorNotifier; //Notifier für Farbänderungen
   ValueNotifier<double>?
   brightnessNotifier; //Notifier für Helligkeitsänderungen
@@ -74,8 +74,16 @@ class _HomeScaffoldState extends State<HomeScaffold> {
 
   // Timer-Parameter
   int timerEnable = 0; //Timer aktivieren/deaktivieren (in ESP-Code: if-Abfrage)
-  int timerDuration =
-      0; //Timer Dauer in Sekunden (in ESP-Code: eigenen Timer starten oder evtl. Zeit umrechnen und zur Endzeit reagieren?)
+  int timerDurationStunden =
+      0; //Stundendauer des Timers (in ESP-Code: Zeit zu aktueller dazurechnen und dann mit if-Abfrage zu dieser Zeit reagieren)
+  int timerDurationMinuten =
+      0; //Minutendauer des Timers (in ESP-Code: Zeit zu aktueller dazurechnen und dann mit if-Abfrage zu dieser Zeit reagieren)
+  int timerDurationSekunden =
+      0; //Sekundendauer des Timers (in ESP-Code: Zeit zu aktueller dazurechnen und dann mit if-Abfrage zu dieser Zeit reagieren)
+  // Internal flag: expect the initial duration update right after a Start
+  // event from TimerCard. We use this to update main's canonical timer
+  // fields only once (on Start) and ignore subsequent per-tick updates.
+  bool _expectingInitialTimerDuration = false;
 
   // Offline-Modus Parameter
   int offlineMode =
@@ -101,15 +109,23 @@ class _HomeScaffoldState extends State<HomeScaffold> {
     // user interaction (slider drag / swatch tap). The listeners update the
     // canonical ints stored here but intentionally do not call setState.
 
+    // When building the initial Color for the visual card we need to
+    // compensate the stored channel values by the requested factor
+    // 5*(100/brightness) as requested. Guard against brightness==0
+    // to avoid division by zero and clamp results to valid bytes.
+    final double safeBrightness = (brightness == 0) ? 1.0 : brightness;
+    final double factor = 5 * (100 / safeBrightness);
+    final int initR = (selectedColorRed * factor).clamp(0, 255).round();
+    final int initG = (selectedColorGreen * factor).clamp(0, 255).round();
+    final int initB = (selectedColorBlue * factor).clamp(0, 255).round();
     colorNotifier = ValueNotifier<Color>(
-      Color.fromARGB(
-        255,
-        selectedColorRed,
-        selectedColorGreen,
-        selectedColorBlue,
-      ),
+      Color.fromARGB(255, initR, initG, initB),
     );
     colorNotifier!.addListener(_colorNotifierListener);
+    // initialize brightness notifier and register listener so the visual
+    // card can update the canonical brightness value without full rebuilds
+    brightnessNotifier = ValueNotifier<double>(brightness);
+    brightnessNotifier!.addListener(_brightnessNotifierListener);
     // Precache preview image to avoid decoding jank during first display on mobile.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       precacheImage(
@@ -128,20 +144,43 @@ class _HomeScaffoldState extends State<HomeScaffold> {
           selectedColorGreen,
           selectedColorBlue,
         );
-    // Compute brightness from the chosen color (average channel luminance)
-    final double factor = ((c.red + c.green + c.blue) / (3.0 * 255.0)).clamp(
-      0.0,
-      1.0,
-    );
-    brightness = (factor * 100.0);
 
-    // Apply the brightness factor to the stored canonical RGB values so
-    // the device receives color components adjusted for brightness.
-    selectedColorRed = (c.red * factor).round();
-    selectedColorGreen = (c.green * factor).round();
-    selectedColorBlue = (c.blue * factor).round();
-
+    // Use the brightness value coming from the visual card's notifier if
+    // available — that ensures the slider's value is used when computing
+    // the scaled RGB components.
+    final currentBrightness = brightnessNotifier?.value ?? brightness;
+    _applyBrightnessToCanonical(c, currentBrightness);
     _printVisualVars('color-notifier');
+  }
+
+  void _brightnessNotifierListener() {
+    // keep canonical brightness in sync with the visual card's notifier.
+    // Intentionally do not call setState here to avoid rebuilding the
+    // whole scaffold on every slider movement; children reading the
+    // notifier will update locally. We only update the stored value so
+    // other logic (e.g. color scaling) can read the current brightness.
+    brightness = brightnessNotifier?.value ?? brightness;
+    // Recalculate the canonical RGBs using the new brightness and the
+    // currently selected color so the device-facing values update
+    // immediately when the slider changes.
+    final c =
+        colorNotifier?.value ??
+        Color.fromARGB(
+          255,
+          selectedColorRed,
+          selectedColorGreen,
+          selectedColorBlue,
+        );
+    _applyBrightnessToCanonical(c, brightness);
+    _printVisualVars('brightness-notifier');
+  }
+
+  void _applyBrightnessToCanonical(Color c, double b) {
+    // Keep the existing scaling behaviour but read brightness from the
+    // provided value. Clamp to valid byte range before rounding.
+    selectedColorRed = (c.red * (b / 500)).clamp(0, 255).round();
+    selectedColorGreen = (c.green * (b / 500)).clamp(0, 255).round();
+    selectedColorBlue = (c.blue * (b / 500)).clamp(0, 255).round();
   }
 
   @override
@@ -149,13 +188,16 @@ class _HomeScaffoldState extends State<HomeScaffold> {
     // remove our listeners and dispose the notifiers we created
     colorNotifier?.removeListener(_colorNotifierListener);
     colorNotifier?.dispose();
+    brightnessNotifier?.removeListener(_brightnessNotifierListener);
+    brightnessNotifier?.dispose();
     super.dispose();
   }
 
   void _printVisualVars([String when = '']) {
     debugPrint(
       'Visual params${when.isNotEmpty ? ' ($when)' : ''}: '
-      'color=($selectedColorRed, $selectedColorGreen, $selectedColorBlue)',
+      'color=($selectedColorRed, $selectedColorGreen, $selectedColorBlue), '
+      'brightness=${brightness.toStringAsFixed(1)}%',
     );
   }
 
@@ -360,6 +402,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                             width: cardWidth,
                             child: visual.VisualisationCard(
                               brightness: brightness,
+                              brightnessNotifier: brightnessNotifier,
                               onBrightnessChanged:
                                   (b) => setState(() {
                                     brightness = b;
@@ -383,6 +426,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                       if (cardWidth == null)
                         visual.VisualisationCard(
                           brightness: brightness,
+                          brightnessNotifier: brightnessNotifier,
                           onBrightnessChanged:
                               (b) => setState(() {
                                 brightness = b;
@@ -445,7 +489,12 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                             child: notif.NotificationCard(
                               notificationEnable: notificationEnable,
                               onNotificationChanged:
-                                  (v) => setState(() => notificationEnable = v),
+                                  (v) => setState(() {
+                                    notificationEnable = v;
+                                    debugPrint(
+                                      'Notification changed -> notificationEnable=$notificationEnable',
+                                    );
+                                  }),
                             ),
                           ),
                         ),
@@ -453,7 +502,12 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                         notif.NotificationCard(
                           notificationEnable: notificationEnable,
                           onNotificationChanged:
-                              (v) => setState(() => notificationEnable = v),
+                              (v) => setState(() {
+                                notificationEnable = v;
+                                debugPrint(
+                                  'Notification changed -> notificationEnable=$notificationEnable',
+                                );
+                              }),
                         ),
                       const SizedBox(height: 12),
                     ],
@@ -558,10 +612,42 @@ class _HomeScaffoldState extends State<HomeScaffold> {
   Widget card_timer() {
     return timer.TimerCard(
       timerEnable: timerEnable,
-      onTimerEnableChanged: (val) => setState(() => timerEnable = val),
+      onTimerEnableChanged:
+          (val) => setState(() {
+            // When TimerCard signals start (1) we expect the next
+            // onTimerDurationChanged call to carry the initial total seconds
+            // and should update the canonical hours/minutes/seconds once.
+            _expectingInitialTimerDuration = val == 1;
+            timerEnable = val;
+            if (val == 0) {
+              // Stop or reset: clear canonical timer fields
+              timerDurationStunden = 0;
+              timerDurationMinuten = 0;
+              timerDurationSekunden = 0;
+              _expectingInitialTimerDuration = false;
+              debugPrint(
+                'Timer started -> timerEnable=$timerEnable, timerDurationStunden=$timerDurationStunden, timerDurationMinuten=$timerDurationMinuten, timerDurationSekunden=$timerDurationSekunden',
+              );
+            } else {
+              debugPrint('Timer enable changed -> timerEnable=$timerEnable');
+            }
+          }),
       // TimerCard reports duration in seconds; store directly in TimerDuration
       onTimerDurationChanged:
-          (seconds) => setState(() => timerDuration = seconds),
+          (seconds) => setState(() {
+            // Only accept the duration update if we're expecting the initial
+            // value (i.e., user pressed Start). Ignore per-tick updates so the
+            // canonical timer fields remain as the originally selected values.
+            if (!_expectingInitialTimerDuration) return;
+            _expectingInitialTimerDuration = false;
+            final s = seconds.clamp(0, 24 * 3600);
+            timerDurationStunden = s ~/ 3600;
+            timerDurationMinuten = (s % 3600) ~/ 60;
+            timerDurationSekunden = s % 60;
+            debugPrint(
+              'Timer started -> timerEnable=$timerEnable, timerDurationStunden=$timerDurationStunden, timerDurationMinuten=$timerDurationMinuten, timerDurationSekunden=$timerDurationSekunden',
+            );
+          }),
     );
   }
 }
