@@ -49,6 +49,27 @@ class _TimerCardState extends State<TimerCard> {
     _remainingSeconds = _totalSeconds;
   }
 
+  @override
+  void didUpdateWidget(covariant TimerCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If parent turned the timer off externally (e.g. app lifecycle) cancel
+    // our internal timer and update local state to match.
+    if (oldWidget.timerEnable == 1 && widget.timerEnable == 0 && _isRunning) {
+      _timer?.cancel();
+      setState(() {
+        _isRunning = false;
+        _isFinished = false;
+        _remainingSeconds = 0;
+      });
+      // Inform parent that we are stopped (defensive — parent likely already set this),
+      // and that there is no remaining duration.
+      try {
+        widget.onTimerEnableChanged(0);
+        widget.onTimerDurationChanged(0);
+      } catch (_) {}
+    }
+  }
+
   int get _totalSeconds =>
       _selectedHours * 3600 + _selectedMinutes * 60 + _selectedSeconds;
 

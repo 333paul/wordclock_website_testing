@@ -29,11 +29,12 @@ class HomeScaffold extends StatefulWidget {
   State<HomeScaffold> createState() => _HomeScaffoldState();
 }
 
-class _HomeScaffoldState extends State<HomeScaffold> {
+class _HomeScaffoldState extends State<HomeScaffold>
+    with WidgetsBindingObserver {
   // Globale Parameter
   int powerOn = 1; //Parameter zum Ein/Ausschalten der UhrUhr ein/aus
   bool newChanges =
-      true; //Änderungen vorhanden (interner Paramter -> nicht im ESP-Code)
+      false; //Änderungen vorhanden (interner Paramter -> nicht im ESP-Code)
 
   // Verbindungs-Parameter
   int loginsaved =
@@ -100,9 +101,35 @@ class _HomeScaffoldState extends State<HomeScaffold> {
       0; //Benachrichtigungsanzeige aktivieren/deaktiveren (in ESP-Code: if(NotificationEnable&&NewNotification) dann LED an)
   int newNotification = 0; //Neue Benachrichtigung
 
+  // --- Baseline (confirmed) values ---
+  // When the user presses "Übernehmen" we snapshot the current settings
+  // here and use these values as the comparison baseline for `newChanges`.
+  late String _baseSsid;
+  late String _basePassword;
+  late double _baseBrightness;
+  late int _baseSelectedColorRed;
+  late int _baseSelectedColorGreen;
+  late int _baseSelectedColorBlue;
+  late int _baseEnableNightMode;
+  late int _baseDisplayOffStunden;
+  late int _baseDisplayOffMinuten;
+  late int _baseDisplayOnStunden;
+  late int _baseDisplayOnMinuten;
+  late int _baseAlarmEnable;
+  late int _baseAlarmTimeStunden;
+  late int _baseAlarmTimeMinuten;
+  late int _baseOfflineMode;
+  late int _baseUtcaktsekunde;
+  late int _baseUtcaktminute;
+  late int _baseUtcaktstunde;
+  late int _baseNotificationEnable;
+
   @override
   void initState() {
     super.initState();
+    // Observe app lifecycle so we can cancel the timer if the app/web page
+    // is backgrounded or closed.
+    WidgetsBinding.instance.addObserver(this);
     _printVisualVars('init');
     // Initialize notifiers from the canonical state so the visual card can
     // update them directly without causing a full scaffold rebuild on every
@@ -133,6 +160,28 @@ class _HomeScaffoldState extends State<HomeScaffold> {
         context,
       );
     });
+
+    // Initialize baseline snapshot from the current values so the first
+    // comparison uses these initial settings as the "confirmed" ones.
+    _baseSsid = ssid;
+    _basePassword = password;
+    _baseBrightness = brightness;
+    _baseSelectedColorRed = selectedColorRed;
+    _baseSelectedColorGreen = selectedColorGreen;
+    _baseSelectedColorBlue = selectedColorBlue;
+    _baseEnableNightMode = enableNightMode;
+    _baseDisplayOffStunden = displayOffStunden;
+    _baseDisplayOffMinuten = displayOffMinuten;
+    _baseDisplayOnStunden = displayOnStunden;
+    _baseDisplayOnMinuten = displayOnMinuten;
+    _baseAlarmEnable = alarmEnable;
+    _baseAlarmTimeStunden = alarmTimeStunden;
+    _baseAlarmTimeMinuten = alarmTimeMinuten;
+    _baseOfflineMode = offlineMode;
+    _baseUtcaktsekunde = utcaktsekunde;
+    _baseUtcaktminute = utcaktminute;
+    _baseUtcaktstunde = utcaktstunde;
+    _baseNotificationEnable = notificationEnable;
   }
 
   void _colorNotifierListener() {
@@ -151,6 +200,10 @@ class _HomeScaffoldState extends State<HomeScaffold> {
     final currentBrightness = brightnessNotifier?.value ?? brightness;
     _applyBrightnessToCanonical(c, currentBrightness);
     _printVisualVars('color-notifier');
+    // Keep `newChanges` up-to-date when the visual parameters change.
+    // We avoid forcing a rebuild unless the `newChanges` flag actually
+    // toggles to reduce unnecessary work.
+    _updateNewChanges();
   }
 
   void _brightnessNotifierListener() {
@@ -173,6 +226,46 @@ class _HomeScaffoldState extends State<HomeScaffold> {
         );
     _applyBrightnessToCanonical(c, brightness);
     _printVisualVars('brightness-notifier');
+    // Brightness changed -> update the newChanges flag as well.
+    _updateNewChanges();
+  }
+
+  // Return true when any of the tracked fields differ from their default
+  // values. This is used to decide whether the UI should show the
+  // "unsaved changes" state (`newChanges`).
+  bool _computeNewChanges() {
+    // Compare current values against the last confirmed (baseline) values.
+    if (ssid != _baseSsid) return true;
+    if (password != _basePassword) return true;
+    if ((brightness - _baseBrightness).abs() > 0.01) return true;
+    if (selectedColorRed != _baseSelectedColorRed) return true;
+    if (selectedColorGreen != _baseSelectedColorGreen) return true;
+    if (selectedColorBlue != _baseSelectedColorBlue) return true;
+    if (enableNightMode != _baseEnableNightMode) return true;
+    if (displayOffStunden != _baseDisplayOffStunden) return true;
+    if (displayOffMinuten != _baseDisplayOffMinuten) return true;
+    if (displayOnStunden != _baseDisplayOnStunden) return true;
+    if (displayOnMinuten != _baseDisplayOnMinuten) return true;
+    if (alarmEnable != _baseAlarmEnable) return true;
+    if (alarmTimeStunden != _baseAlarmTimeStunden) return true;
+    if (alarmTimeMinuten != _baseAlarmTimeMinuten) return true;
+    if (offlineMode != _baseOfflineMode) return true;
+    if (utcaktsekunde != _baseUtcaktsekunde) return true;
+    if (utcaktminute != _baseUtcaktminute) return true;
+    if (utcaktstunde != _baseUtcaktstunde) return true;
+    if (notificationEnable != _baseNotificationEnable) return true;
+    return false;
+  }
+
+  // Update `newChanges` and call setState only when the boolean actually
+  // changes to avoid redundant rebuilds.
+  void _updateNewChanges() {
+    final bool changed = _computeNewChanges();
+    if (newChanges != changed) {
+      setState(() {
+        newChanges = changed;
+      });
+    }
   }
 
   void _applyBrightnessToCanonical(Color c, double b) {
@@ -185,12 +278,32 @@ class _HomeScaffoldState extends State<HomeScaffold> {
 
   @override
   void dispose() {
+    // stop observing lifecycle changes
+    WidgetsBinding.instance.removeObserver(this);
     // remove our listeners and dispose the notifiers we created
     colorNotifier?.removeListener(_colorNotifierListener);
     colorNotifier?.dispose();
     brightnessNotifier?.removeListener(_brightnessNotifierListener);
     brightnessNotifier?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // When the app is backgrounded/closed we should cancel the timer and
+    // clear the canonical timer fields so the device doesn't keep waiting
+    // for a timer that the user can no longer control from the UI.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      debugPrint('App lifecycle: $state — clearing timer state');
+      setState(() {
+        timerEnable = 0;
+        timerDurationStunden = 0;
+        timerDurationMinuten = 0;
+        timerDurationSekunden = 0;
+        _expectingInitialTimerDuration = false;
+      });
+    }
   }
 
   void _printVisualVars([String when = '']) {
@@ -251,18 +364,72 @@ class _HomeScaffoldState extends State<HomeScaffold> {
         leadingWidth: wideAtAppBar ? 150 : 50,
         leading:
             wideAtAppBar
-                ? Padding(
-                  padding: const EdgeInsets.only(left: 12.0),
-                  child: Center(
-                    child: SizedBox(
-                      height: appBarButtonHeight,
-                      child: labeledButton(Icons.check, 'Übernehmen', () {
-                        // apply / send settings (placeholder)
-                        Navigator.maybePop(context);
-                      }),
-                    ),
-                  ),
-                )
+                ? (newChanges
+                    ? Padding(
+                      padding: const EdgeInsets.only(left: 12.0),
+                      child: Center(
+                        child: SizedBox(
+                          height: appBarButtonHeight,
+                          child: labeledButton(Icons.check, 'Übernehmen', () {
+                            // Print all current settings to the debug console
+                            debugPrint('Apply pressed -> current settings:');
+                            debugPrint('ssid=$ssid');
+                            debugPrint('password=$password');
+                            debugPrint(
+                              'brightness=${brightness.toStringAsFixed(2)}',
+                            );
+                            debugPrint('selectedColorRed=$selectedColorRed');
+                            debugPrint(
+                              'selectedColorGreen=$selectedColorGreen',
+                            );
+                            debugPrint('selectedColorBlue=$selectedColorBlue');
+                            debugPrint('enableNightMode=$enableNightMode');
+                            debugPrint('displayOffStunden=$displayOffStunden');
+                            debugPrint('displayOffMinuten=$displayOffMinuten');
+                            debugPrint('displayOnStunden=$displayOnStunden');
+                            debugPrint('displayOnMinuten=$displayOnMinuten');
+                            debugPrint('alarmEnable=$alarmEnable');
+                            debugPrint('alarmTimeStunden=$alarmTimeStunden');
+                            debugPrint('alarmTimeMinuten=$alarmTimeMinuten');
+                            debugPrint('offlineMode=$offlineMode');
+                            debugPrint('utcaktsekunde=$utcaktsekunde');
+                            debugPrint('utcaktminute=$utcaktminute');
+                            debugPrint('utcaktstunde=$utcaktstunde');
+                            debugPrint(
+                              'notificationEnable=$notificationEnable',
+                            );
+                            // Update baseline snapshot so these values become the
+                            // confirmed defaults; hide the Apply button until they
+                            // change again.
+                            setState(() {
+                              _baseSsid = ssid;
+                              _basePassword = password;
+                              _baseBrightness = brightness;
+                              _baseSelectedColorRed = selectedColorRed;
+                              _baseSelectedColorGreen = selectedColorGreen;
+                              _baseSelectedColorBlue = selectedColorBlue;
+                              _baseEnableNightMode = enableNightMode;
+                              _baseDisplayOffStunden = displayOffStunden;
+                              _baseDisplayOffMinuten = displayOffMinuten;
+                              _baseDisplayOnStunden = displayOnStunden;
+                              _baseDisplayOnMinuten = displayOnMinuten;
+                              _baseAlarmEnable = alarmEnable;
+                              _baseAlarmTimeStunden = alarmTimeStunden;
+                              _baseAlarmTimeMinuten = alarmTimeMinuten;
+                              _baseOfflineMode = offlineMode;
+                              _baseUtcaktsekunde = utcaktsekunde;
+                              _baseUtcaktminute = utcaktminute;
+                              _baseUtcaktstunde = utcaktstunde;
+                              _baseNotificationEnable = notificationEnable;
+                              newChanges = false;
+                            });
+                            // keep prior behaviour (close if possible)
+                            Navigator.maybePop(context);
+                          }),
+                        ),
+                      ),
+                    )
+                    : const SizedBox.shrink())
                 : (newChanges
                     ? IconButton(
                       padding: EdgeInsets.zero,
@@ -271,7 +438,53 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                         size: 25.0,
                         color: Colors.black,
                       ),
-                      onPressed: () => Navigator.maybePop(context),
+                      onPressed: () {
+                        debugPrint('Apply pressed -> current settings:');
+                        debugPrint('ssid=$ssid');
+                        debugPrint('password=$password');
+                        debugPrint(
+                          'brightness=${brightness.toStringAsFixed(2)}',
+                        );
+                        debugPrint('selectedColorRed=$selectedColorRed');
+                        debugPrint('selectedColorGreen=$selectedColorGreen');
+                        debugPrint('selectedColorBlue=$selectedColorBlue');
+                        debugPrint('enableNightMode=$enableNightMode');
+                        debugPrint('displayOffStunden=$displayOffStunden');
+                        debugPrint('displayOffMinuten=$displayOffMinuten');
+                        debugPrint('displayOnStunden=$displayOnStunden');
+                        debugPrint('displayOnMinuten=$displayOnMinuten');
+                        debugPrint('alarmEnable=$alarmEnable');
+                        debugPrint('alarmTimeStunden=$alarmTimeStunden');
+                        debugPrint('alarmTimeMinuten=$alarmTimeMinuten');
+                        debugPrint('offlineMode=$offlineMode');
+                        debugPrint('utcaktsekunde=$utcaktsekunde');
+                        debugPrint('utcaktminute=$utcaktminute');
+                        debugPrint('utcaktstunde=$utcaktstunde');
+                        debugPrint('notificationEnable=$notificationEnable');
+                        setState(() {
+                          _baseSsid = ssid;
+                          _basePassword = password;
+                          _baseBrightness = brightness;
+                          _baseSelectedColorRed = selectedColorRed;
+                          _baseSelectedColorGreen = selectedColorGreen;
+                          _baseSelectedColorBlue = selectedColorBlue;
+                          _baseEnableNightMode = enableNightMode;
+                          _baseDisplayOffStunden = displayOffStunden;
+                          _baseDisplayOffMinuten = displayOffMinuten;
+                          _baseDisplayOnStunden = displayOnStunden;
+                          _baseDisplayOnMinuten = displayOnMinuten;
+                          _baseAlarmEnable = alarmEnable;
+                          _baseAlarmTimeStunden = alarmTimeStunden;
+                          _baseAlarmTimeMinuten = alarmTimeMinuten;
+                          _baseOfflineMode = offlineMode;
+                          _baseUtcaktsekunde = utcaktsekunde;
+                          _baseUtcaktminute = utcaktminute;
+                          _baseUtcaktstunde = utcaktstunde;
+                          _baseNotificationEnable = notificationEnable;
+                          newChanges = false;
+                        });
+                        Navigator.maybePop(context);
+                      },
                     )
                     : null),
         title: const Text(
@@ -494,6 +707,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                                     debugPrint(
                                       'Notification changed -> notificationEnable=$notificationEnable',
                                     );
+                                    newChanges = _computeNewChanges();
                                   }),
                             ),
                           ),
@@ -507,6 +721,7 @@ class _HomeScaffoldState extends State<HomeScaffold> {
                                 debugPrint(
                                   'Notification changed -> notificationEnable=$notificationEnable',
                                 );
+                                newChanges = _computeNewChanges();
                               }),
                         ),
                       const SizedBox(height: 12),
@@ -593,16 +808,20 @@ class _HomeScaffoldState extends State<HomeScaffold> {
       ssid: ssid,
       password: password,
       onConnect:
-          (ssid, password) => setState(() {
-            ssid = ssid;
-            password = password;
+          (newSsid, newPassword) => setState(() {
+            ssid = newSsid;
+            password = newPassword;
             loginsaved = 1;
+            // Keep the `newChanges` flag up-to-date inside the same setState
+            // to avoid nested setState calls.
+            newChanges = _computeNewChanges();
           }),
       onDisconnect:
           () => setState(() {
             loginsaved = 0;
             ssid = '';
             password = '';
+            newChanges = _computeNewChanges();
           }),
     );
   }
