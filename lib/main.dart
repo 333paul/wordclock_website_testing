@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'cards/card_visualisation.dart' as visual;
 import 'cards/card_connections.dart' as conn;
 import 'cards/card_notification.dart' as notif;
@@ -320,7 +321,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
     super.setState(() {
       fn();
     });
-    _printVisualVars('after setState');
+    // Avoid spamming the debug console during layout/resize; only print in
+    // debug mode and keep it lightweight.
+    if (kDebugMode) {
+      _printVisualVars('after setState');
+    }
   }
 
   Widget build(BuildContext context) {

@@ -32,7 +32,10 @@ class _VisualisationCardState extends State<VisualisationCard> {
   late double _localBrightness;
   // controller + repetition to simulate infinite horizontal scrolling
   late final ScrollController _swatchScrollController;
-  static const int _repeatFactor = 800; // large enough to feel "infinite"
+  // Reduced repeat factor: large factors create very long scroll extents
+  // which are expensive to layout when the window size changes. 80 gives
+  // a good feel while keeping layout cheap.
+  static const int _repeatFactor = 80; // reduced for performance
   late final int _totalSwatches;
   static const double _swatchSize = 56.0;
   static const double _swatchHorizontalPadding =
@@ -49,9 +52,18 @@ class _VisualisationCardState extends State<VisualisationCard> {
     // swipe both directions and experience a wrap-around effect.
     _totalSwatches = _colors.length * _repeatFactor;
     final int initialIndex = _totalSwatches ~/ 2;
-    _swatchScrollController = ScrollController(
-      initialScrollOffset: initialIndex * _swatchExtent,
-    );
+    // Avoid setting a huge initialScrollOffset in the controller constructor
+    // (which forces the scrollable to compute very large extents during build).
+    // Instead create the controller with default offset and jump after first
+    // frame when layout is ready.
+    _swatchScrollController = ScrollController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final double offset = initialIndex * _swatchExtent;
+        // Guard: ensure offset is finite and within reasonable bounds
+        _swatchScrollController.jumpTo(offset);
+      }
+    });
   }
 
   @override
