@@ -18,7 +18,80 @@ class MainApp extends StatelessWidget {
       title: 'WORDCLOCK',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
-      home: const HomeScaffold(),
+      // Show a small splash screen on startup before the main scaffold.
+      // Show a small splash screen on startup before the main scaffold.
+      // If an initialization Future is provided it will wait for it, otherwise
+      // it will show the splash for the given duration. Default duration: 4s.
+      home: SplashScreen(
+        next: const HomeScaffold(),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+}
+
+/// Simple startup splash screen: black background with centered image.
+class SplashScreen extends StatefulWidget {
+  final Widget next;
+  final Duration duration;
+
+  // Optional initialization future. If provided the splash waits for this
+  // future to complete. If null the splash waits for [duration].
+  final Future<void>? initFuture;
+
+  const SplashScreen({
+    super.key,
+    required this.next,
+    this.duration = const Duration(seconds: 4),
+    this.initFuture,
+  });
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.initFuture != null) {
+        // Wait for the provided future; when it completes show next.
+        widget.initFuture!
+            .then((_) {
+              if (!mounted) return;
+              setState(() => _done = true);
+            })
+            .catchError((_) {
+              // On error proceed to the next screen regardless.
+              if (!mounted) return;
+              setState(() => _done = true);
+            });
+      } else {
+        // No init future: show splash for the configured duration.
+        Future.delayed(widget.duration, () {
+          if (!mounted) return;
+          setState(() => _done = true);
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_done) return widget.next;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Image.asset(
+          'assets/images/AppIcon2.png',
+          width: 256,
+          height: 256,
+          fit: BoxFit.contain,
+        ),
+      ),
     );
   }
 }

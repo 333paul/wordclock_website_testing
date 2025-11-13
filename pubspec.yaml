@@ -20,4 +20,6 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/wordclock_preview.png
+    # Register the whole images folder so any added images (e.g. AppIcon2.png)
+    # are available to `Image.asset` without listing each file individually.
+    - assets/images/
