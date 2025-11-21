@@ -35,7 +35,9 @@ class _VisualisationCardState extends State<VisualisationCard> {
   // Reduced repeat factor: large factors create very long scroll extents
   // which are expensive to layout when the window size changes. 80 gives
   // a good feel while keeping layout cheap.
-  static const int _repeatFactor = 80; // reduced for performance
+  // Reduced repeat factor: keep it small for cheap layout while still
+  // allowing simple left/right swiping feel.
+  static const int _repeatFactor = 32; // lower = less layout cost
   late final int _totalSwatches;
   static const double _swatchSize = 56.0;
   static const double _swatchHorizontalPadding =
@@ -58,38 +60,21 @@ class _VisualisationCardState extends State<VisualisationCard> {
     // frame when layout is ready.
     _swatchScrollController = ScrollController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final double offset = initialIndex * _swatchExtent;
-        // Guard: ensure offset is finite and within reasonable bounds
-        _swatchScrollController.jumpTo(offset);
-      }
+      if (!mounted) return;
+      final double offset = initialIndex * _swatchExtent;
+      // Guard: ensure offset is finite
+      if (offset.isFinite) _swatchScrollController.jumpTo(offset);
     });
-  }
-
-  @override
-  void dispose() {
-    widget.brightnessNotifier?.removeListener(_brightnessNotifierListener);
-    widget.colorNotifier?.removeListener(_colorNotifierListener);
-    _swatchScrollController.dispose();
-    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant VisualisationCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    // keep local brightness in sync when parent updates externally
-    if (oldWidget.brightness != widget.brightness) {
-      _localBrightness = widget.brightness;
-    }
-
-    // re-register notifiers if changed
+    // If notifier instances changed, make sure we remove listeners from the
+    // old ones and add them to the new ones to avoid leaks or no-op updates.
     if (oldWidget.brightnessNotifier != widget.brightnessNotifier) {
       oldWidget.brightnessNotifier?.removeListener(_brightnessNotifierListener);
       widget.brightnessNotifier?.addListener(_brightnessNotifierListener);
-      if (widget.brightnessNotifier != null) {
-        _localBrightness = widget.brightnessNotifier!.value;
-      }
     }
 
     if (oldWidget.colorNotifier != widget.colorNotifier) {
@@ -98,14 +83,26 @@ class _VisualisationCardState extends State<VisualisationCard> {
     }
   }
 
-  void _brightnessNotifierListener() {
-    setState(() {
-      _localBrightness = widget.brightnessNotifier!.value;
-    });
-  }
-
   void _colorNotifierListener() {
     setState(() {}); // only repaint color swatch selection
+  }
+
+  void _brightnessNotifierListener() {
+    // Sync the local slider value with external notifier changes.
+    final v = widget.brightnessNotifier?.value ?? widget.brightness;
+    if ((v - _localBrightness).abs() > 0.01) {
+      setState(() => _localBrightness = v);
+    }
+  }
+
+  @override
+  void dispose() {
+    // Remove any listeners we added to external notifiers to avoid
+    // calling back into disposed state objects.
+    widget.brightnessNotifier?.removeListener(_brightnessNotifierListener);
+    widget.colorNotifier?.removeListener(_colorNotifierListener);
+    _swatchScrollController.dispose();
+    super.dispose();
   }
 
   // palette of 10 muted colors
@@ -257,13 +254,6 @@ class _VisualisationCardState extends State<VisualisationCard> {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              overlayColor:
-                                  MaterialStateProperty.resolveWith<Color?>(
-                                    (states) =>
-                                        states.contains(MaterialState.pressed)
-                                            ? Colors.black.withOpacity(0.10)
-                                            : null,
-                                  ),
                               onTap: () {
                                 final Color chosen = _colors[idx];
                                 if (widget.colorNotifier != null) {
@@ -281,36 +271,23 @@ class _VisualisationCardState extends State<VisualisationCard> {
                                   border: Border.all(
                                     color:
                                         selected
-                                            ? Colors.black26
-                                            : Colors.grey.shade200,
+                                            ? Colors.black
+                                            : Colors.black26,
                                     width: selected ? 2 : 1,
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.06),
-                                      blurRadius: 3,
-                                      offset: const Offset(0, 1.5),
-                                    ),
-                                  ],
                                 ),
                                 child:
                                     selected
-                                        ? Center(
-                                          child: Container(
-                                            width: 24,
-                                            height: 24,
-                                            decoration: BoxDecoration(
-                                              color: Colors.black.withOpacity(
-                                                0.45,
-                                              ),
-                                              shape: BoxShape.circle,
-                                            ),
-                                            child: const Icon(
-                                              Icons.check,
-                                              color: Colors.white,
-                                              size: 18,
-                                            ),
-                                          ),
+                                        ? Icon(
+                                          Icons.check,
+                                          // choose icon color with contrast against
+                                          // the swatch color so the check remains
+                                          // visible on light backgrounds (e.g. white)
+                                          color:
+                                              _colors[idx].computeLuminance() >
+                                                      0.6
+                                                  ? Colors.black
+                                                  : Colors.white,
                                         )
                                         : null,
                               ),

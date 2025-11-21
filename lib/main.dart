@@ -55,26 +55,41 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (widget.initFuture != null) {
-        // Wait for the provided future; when it completes show next.
-        widget.initFuture!
-            .then((_) {
-              if (!mounted) return;
-              setState(() => _done = true);
-            })
-            .catchError((_) {
-              // On error proceed to the next screen regardless.
-              if (!mounted) return;
-              setState(() => _done = true);
-            });
-      } else {
-        // No init future: show splash for the configured duration.
-        Future.delayed(widget.duration, () {
-          if (!mounted) return;
-          setState(() => _done = true);
-        });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Precache the splash icon so it's available immediately, and
+      // precache the large preview image. We will not transition away
+      // from the splash until both the init/duration and the preview
+      // image are ready. Use a timeout for the preview to avoid hanging
+      // indefinitely if the asset is missing.
+      final iconProvider = const AssetImage('assets/images/AppIcon2.png');
+      final previewProvider = const AssetImage(
+        'assets/images/wordclock_preview.png',
+      );
+
+      try {
+        await precacheImage(iconProvider, context);
+      } catch (_) {}
+
+      Future<void> precachePreview() async {
+        try {
+          await precacheImage(previewProvider, context);
+        } catch (_) {}
       }
+
+      final Future<void> waitForInit =
+          widget.initFuture ?? Future.delayed(widget.duration);
+
+      // Wait for both the init/duration and the preview (with a timeout).
+      await Future.wait<void>([
+        waitForInit,
+        precachePreview().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {},
+        ),
+      ]);
+
+      if (!mounted) return;
+      setState(() => _done = true);
     });
   }
 
@@ -85,11 +100,19 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 12, 12, 12),
       body: Center(
-        child: Image.asset(
-          'assets/images/AppIcon2.png',
-          width: 256,
-          height: 256,
-          fit: BoxFit.contain,
+        child: Builder(
+          builder: (ctx) {
+            final dpr = MediaQuery.of(ctx).devicePixelRatio;
+            final int cache = (256 * dpr).round();
+            return Image.asset(
+              'assets/images/AppIcon2.png',
+              width: 256,
+              height: 256,
+              cacheWidth: cache,
+              cacheHeight: cache,
+              fit: BoxFit.contain,
+            );
+          },
         ),
       ),
     );
@@ -105,6 +128,10 @@ class HomeScaffold extends StatefulWidget {
 
 class _HomeScaffoldState extends State<HomeScaffold>
     with WidgetsBindingObserver {
+  // Track whether the preview image has been painted at least once. While
+  // false we keep the scaffold background dark to avoid a brief white flash
+  // when transitioning from the splash screen.
+  bool _previewPainted = false;
   // Globale Parameter
   int powerOn = 1; //Parameter zum Ein/Ausschalten der UhrUhr ein/aus
   bool newChanges =
@@ -437,7 +464,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor:
+          _previewPainted
+              ? Colors.white
+              : const Color.fromARGB(255, 12, 12, 12),
       appBar: AppBar(
         leadingWidth: wideAtAppBar ? 150 : 50,
         leading:
@@ -574,7 +604,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
           ),
         ),
         centerTitle: true,
-        backgroundColor: Colors.white,
+        backgroundColor:
+            _previewPainted
+                ? Colors.white
+                : const Color.fromARGB(255, 12, 12, 12),
         elevation: 0,
         actions:
             wideAtAppBar
@@ -648,23 +681,59 @@ class _HomeScaffoldState extends State<HomeScaffold>
               // provided background color. Defined inside so `side` is in
               // scope.
               Widget buildStack(Color bgColor) {
-                return Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      width: side,
-                      height: side,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // background rectangle exactly the same size
-                          Container(width: side, height: side, color: bgColor),
-                          // preview image on top
-                          Image.asset(
-                            'assets/images/wordclock_preview.png',
-                            fit: BoxFit.contain,
-                          ),
-                        ],
+                return RepaintBoundary(
+                  child: Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: side,
+                        height: side,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // background rectangle exactly the same size
+                            Container(
+                              width: side,
+                              height: side,
+                              color: bgColor,
+                            ),
+                            // preview image on top — request decoded size to match
+                            // the box to reduce decode overhead.
+                            Builder(
+                              builder: (ctx) {
+                                final dpr = MediaQuery.of(ctx).devicePixelRatio;
+                                final int cache = (side * dpr).round();
+                                return Image.asset(
+                                  'assets/images/wordclock_preview.png',
+                                  fit: BoxFit.contain,
+                                  cacheWidth: cache,
+                                  cacheHeight: cache,
+                                  gaplessPlayback: true,
+                                  frameBuilder: (
+                                    context,
+                                    child,
+                                    frame,
+                                    wasSynchronouslyLoaded,
+                                  ) {
+                                    // When the first non-null frame arrives mark the
+                                    // preview as painted so the scaffold can switch
+                                    // to its normal background color immediately.
+                                    if (frame != null && !_previewPainted) {
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                            if (!mounted) return;
+                                            setState(() {
+                                              _previewPainted = true;
+                                            });
+                                          });
+                                    }
+                                    return child;
+                                  },
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
