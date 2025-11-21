@@ -145,6 +145,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
   String password =
       ""; //Passwort des aktuell verbundenen WLANs (bereits in ESP-Code implementiert)
 
+  // Controllers for the connections card so main can read entered values
+  late final TextEditingController _ssidController;
+  late final TextEditingController _passwordController;
+
   // Visualisierungs-Parameter
   double brightness =
       70; //Helligkeit (-> wird direkt in RGB-Werte umgesetzt -> im ESP-Code um Farbe zurückrechnen zu können)
@@ -261,6 +265,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
         context,
       );
     });
+
+    // Initialize text controllers for the connections card (seed with current values)
+    _ssidController = TextEditingController(text: ssid);
+    _passwordController = TextEditingController(text: password);
 
     // Initialize baseline snapshot from the current values so the first
     // comparison uses these initial settings as the "confirmed" ones.
@@ -386,6 +394,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
     colorNotifier?.dispose();
     brightnessNotifier?.removeListener(_brightnessNotifierListener);
     brightnessNotifier?.dispose();
+    // dispose text controllers
+    _ssidController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -479,6 +490,12 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         child: SizedBox(
                           height: appBarButtonHeight,
                           child: labeledButton(Icons.check, 'Übernehmen', () {
+                            // Read entered SSID/password from the connections card
+                            final enteredSsid = _ssidController.text.trim();
+                            final enteredPassword = _passwordController.text;
+                            // Update canonical fields so they are reflected below
+                            ssid = enteredSsid;
+                            password = enteredPassword;
                             // Print all current settings to the debug console
                             debugPrint('Apply pressed -> current settings:');
                             debugPrint('ssid=$ssid');
@@ -510,8 +527,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
                             // confirmed defaults; hide the Apply button until they
                             // change again.
                             setState(() {
+                              // Mark the entered SSID/password as confirmed
                               _baseSsid = ssid;
                               _basePassword = password;
+                              loginsaved =
+                                  1; // consider connection confirmed now
                               _baseBrightness = brightness;
                               _baseSelectedColorRed = selectedColorRed;
                               _baseSelectedColorGreen = selectedColorGreen;
@@ -547,6 +567,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         color: Colors.black,
                       ),
                       onPressed: () {
+                        // Read entered SSID/password from the connections card
+                        final enteredSsid = _ssidController.text.trim();
+                        final enteredPassword = _passwordController.text;
+                        ssid = enteredSsid;
+                        password = enteredPassword;
                         debugPrint('Apply pressed -> current settings:');
                         debugPrint('ssid=$ssid');
                         debugPrint('password=$password');
@@ -570,8 +595,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         debugPrint('utcaktstunde=$utcaktstunde');
                         debugPrint('notificationEnable=$notificationEnable');
                         setState(() {
+                          // Mark the entered SSID/password as confirmed
                           _baseSsid = ssid;
                           _basePassword = password;
+                          loginsaved = 1; // consider connection confirmed now
                           _baseBrightness = brightness;
                           _baseSelectedColorRed = selectedColorRed;
                           _baseSelectedColorGreen = selectedColorGreen;
@@ -1000,21 +1027,44 @@ class _HomeScaffoldState extends State<HomeScaffold>
       loginSaved: loginsaved,
       ssid: ssid,
       password: password,
+      ssidController: _ssidController,
+      passwordController: _passwordController,
       onConnect:
           (newSsid, newPassword) => setState(() {
+            // Immediately accept the connection: update canonical fields,
+            // update controllers so the inputs reflect the connected values,
+            // and show the connected state in the UI.
             ssid = newSsid;
             password = newPassword;
+            _ssidController.text = newSsid;
+            _passwordController.text = newPassword;
             loginsaved = 1;
-            // Keep the `newChanges` flag up-to-date inside the same setState
-            // to avoid nested setState calls.
+            // Treat an explicit Connect as a confirmed change for SSID/password
+            // so the UI shouldn't show the "Übernehmen" (unsaved changes)
+            // state. Update the baseline snapshot for these fields.
+            _baseSsid = ssid;
+            _basePassword = password;
+            // Recompute newChanges (should be false after snapshot)
             newChanges = _computeNewChanges();
+            // Print debug info immediately on connect
+            debugPrint('Connect pressed -> ssid=$ssid');
+            debugPrint('Connect pressed -> password=$password');
           }),
       onDisconnect:
           () => setState(() {
+            // Clear canonical fields and controllers on disconnect
             loginsaved = 0;
             ssid = '';
             password = '';
+            _ssidController.clear();
+            _passwordController.clear();
+            // Treat disconnect as a confirmed change (no Apply needed):
+            // update baseline snapshot to match the cleared state so the
+            // "Übernehmen" button does not appear.
+            _baseSsid = '';
+            _basePassword = '';
             newChanges = _computeNewChanges();
+            debugPrint('Disconnected -> cleared ssid/password');
           }),
     );
   }

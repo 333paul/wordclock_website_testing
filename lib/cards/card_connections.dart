@@ -6,6 +6,8 @@ class EspWifiCard extends StatefulWidget {
   final String password;
   final Function(String ssid, String password) onConnect;
   final Function() onDisconnect;
+  final TextEditingController? ssidController;
+  final TextEditingController? passwordController;
 
   const EspWifiCard({
     Key? key,
@@ -14,6 +16,8 @@ class EspWifiCard extends StatefulWidget {
     required this.password,
     required this.onConnect,
     required this.onDisconnect,
+    this.ssidController,
+    this.passwordController,
   }) : super(key: key);
 
   @override
@@ -21,33 +25,54 @@ class EspWifiCard extends StatefulWidget {
 }
 
 class _EspWifiCardState extends State<EspWifiCard> {
-  List<String> availableNetworks = [];
-  String selectedSsid = '';
-  String enteredPassword = '';
+  late final TextEditingController _localSsidController;
+  late final TextEditingController _localPasswordController;
+
+  // no-op: we previously considered exposing whether external controllers
+  // are used; removed unused getter to avoid lint warnings.
 
   @override
   void initState() {
     super.initState();
-    selectedSsid = widget.ssid;
-    enteredPassword = widget.password;
-    _loadAvailableNetworks();
+    // If external controllers are provided use them; otherwise create local ones
+    _localSsidController = widget.ssidController ?? TextEditingController();
+    _localPasswordController =
+        widget.passwordController ?? TextEditingController();
+    // seed controllers with canonical values so the fields show current state
+    if ((widget.ssidController == null) && widget.ssid.isNotEmpty) {
+      _localSsidController.text = widget.ssid;
+    }
+    if ((widget.passwordController == null) && widget.password.isNotEmpty) {
+      _localPasswordController.text = widget.password;
+    }
   }
 
-  void _loadAvailableNetworks() {
-    // TODO: Ersetze das durch echten ESP-WLAN Scan
-    setState(() {
-      availableNetworks = ['ESP_WLAN_1', 'ESP_WLAN_2', 'ESP_WLAN_3'];
-    });
+  @override
+  void dispose() {
+    // Only dispose local controllers (not ones passed in)
+    if (widget.ssidController == null) {
+      _localSsidController.dispose();
+    }
+    if (widget.passwordController == null) {
+      _localPasswordController.dispose();
+    }
+    super.dispose();
   }
 
-  void _connect() {
-    if (selectedSsid.isNotEmpty && enteredPassword.isNotEmpty) {
-      widget.onConnect(selectedSsid, enteredPassword);
+  void _localConnect() {
+    final ssid = _localSsidController.text.trim();
+    final pw = _localPasswordController.text;
+    if (ssid.isNotEmpty) {
+      widget.onConnect(ssid, pw);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final ssidController = widget.ssidController ?? _localSsidController;
+    final passwordController =
+        widget.passwordController ?? _localPasswordController;
+
     return Card(
       color: Colors.white,
       elevation: 1,
@@ -61,7 +86,7 @@ class _EspWifiCardState extends State<EspWifiCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'ESP WLAN',
+              'Verbindungen',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -70,55 +95,85 @@ class _EspWifiCardState extends State<EspWifiCard> {
             ),
             const SizedBox(height: 12),
 
-            // Aktuelles WLAN
+            // Wenn verbunden: nur Statuszeile + Trennen zeigen
             if ((widget.loginSaved == 1) && widget.ssid.isNotEmpty) ...[
-              Text('Verbunden mit: ${widget.ssid}'),
-              const SizedBox(height: 6),
-              TextButton(
-                onPressed: widget.onDisconnect,
-                child: const Text('Trennen'),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Verbunden mit: ${widget.ssid}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // 'Trennen' Button rechtsbündig im Timer-Start-Stil
+                  ElevatedButton(
+                    onPressed: widget.onDisconnect,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueGrey,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(88, 36),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('Trennen'),
+                  ),
+                ],
               ),
-            ] else
+              const SizedBox(height: 8),
+            ] else ...[
               const Text('Nicht verbunden'),
 
-            const Divider(height: 20, thickness: 1),
+              const Divider(height: 20, thickness: 1),
 
-            // Verfügbare Netzwerke
-            const Text(
-              'Verfügbare Netzwerke',
-              style: TextStyle(fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            ...availableNetworks.map(
-              (network) => ListTile(
-                title: Text(network),
-                trailing:
-                    selectedSsid == network
-                        ? const Icon(Icons.check, color: Colors.green)
-                        : null,
-                onTap: () {
-                  setState(() {
-                    selectedSsid = network;
-                  });
-                },
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // Passwort Eingabe
-            if (selectedSsid.isNotEmpty) ...[
+              // Einfaches Formular: SSID + Passwort untereinander
               TextField(
+                controller: ssidController,
+                decoration: const InputDecoration(
+                  labelText: 'SSID',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: passwordController,
                 decoration: const InputDecoration(
                   labelText: 'Passwort',
                   border: OutlineInputBorder(),
                 ),
-                onChanged: (v) => enteredPassword = v,
+                obscureText: true,
               ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _connect,
-                child: const Text('Verbinden'),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: _localConnect,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueGrey,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(120, 40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('Verbinden'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: () {
+                      ssidController.clear();
+                      passwordController.clear();
+                    },
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(88, 40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('Löschen'),
+                  ),
+                ],
               ),
             ],
           ],
