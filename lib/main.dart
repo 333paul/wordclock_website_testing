@@ -83,7 +83,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (_done) return widget.next;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color.fromARGB(255, 12, 12, 12),
       body: Center(
         child: Image.asset(
           'assets/images/AppIcon2.png',
@@ -637,20 +637,66 @@ class _HomeScaffoldState extends State<HomeScaffold>
             const double verticalDividerWidth = 12.0;
 
             // Bild-Widget (verwendet die berechnete side)
+            // Bild-Widget (verwendet die berechnete side)
+            // Shows a colored rectangle behind the preview image. The
+            // rectangle has exactly the same size (`side`) so it remains
+            // aligned when `side` changes. The color uses the color selected
+            // in the VisualisationCard when available (via `colorNotifier`),
+            // otherwise falls back to the canonical RGB ints.
             Widget imageBox(double side) {
-              return Center(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: SizedBox(
-                    width: side,
-                    height: side,
-                    child: Image.asset(
-                      'assets/images/wordclock_preview.png',
-                      fit: BoxFit.contain,
+              // Helper that builds the Stack (bg rect + image) using the
+              // provided background color. Defined inside so `side` is in
+              // scope.
+              Widget buildStack(Color bgColor) {
+                return Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: side,
+                      height: side,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // background rectangle exactly the same size
+                          Container(width: side, height: side, color: bgColor),
+                          // preview image on top
+                          Image.asset(
+                            'assets/images/wordclock_preview.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                );
+              }
+
+              // If we have a color notifier use it so the background updates
+              // immediately when the user selects a new swatch in the
+              // VisualisationCard. Otherwise fall back to canonical RGB ints.
+              if (colorNotifier != null) {
+                return ValueListenableBuilder<Color>(
+                  valueListenable: colorNotifier!,
+                  builder: (context, value, child) {
+                    return buildStack(
+                      Color.fromARGB(
+                        255,
+                        value.red.clamp(0, 255),
+                        value.green.clamp(0, 255),
+                        value.blue.clamp(0, 255),
+                      ),
+                    );
+                  },
+                );
+              }
+
+              final fallback = Color.fromARGB(
+                255,
+                selectedColorRed.clamp(0, 255),
+                selectedColorGreen.clamp(0, 255),
+                selectedColorBlue.clamp(0, 255),
               );
+              return buildStack(fallback);
             }
 
             // linke Spalte: optional cardWidth übergeben (bei wide layout)
