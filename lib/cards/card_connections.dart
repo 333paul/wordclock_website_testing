@@ -28,17 +28,13 @@ class _EspWifiCardState extends State<EspWifiCard> {
   late final TextEditingController _localSsidController;
   late final TextEditingController _localPasswordController;
 
-  // no-op: we previously considered exposing whether external controllers
-  // are used; removed unused getter to avoid lint warnings.
-
   @override
   void initState() {
     super.initState();
-    // If external controllers are provided use them; otherwise create local ones
     _localSsidController = widget.ssidController ?? TextEditingController();
     _localPasswordController =
         widget.passwordController ?? TextEditingController();
-    // seed controllers with canonical values so the fields show current state
+
     if ((widget.ssidController == null) && widget.ssid.isNotEmpty) {
       _localSsidController.text = widget.ssid;
     }
@@ -49,7 +45,6 @@ class _EspWifiCardState extends State<EspWifiCard> {
 
   @override
   void dispose() {
-    // Only dispose local controllers (not ones passed in)
     if (widget.ssidController == null) {
       _localSsidController.dispose();
     }
@@ -61,10 +56,11 @@ class _EspWifiCardState extends State<EspWifiCard> {
 
   void _localConnect() {
     final ssid = _localSsidController.text.trim();
-    final pw = _localPasswordController.text;
-    if (ssid.isNotEmpty) {
-      widget.onConnect(ssid, pw);
-    }
+    final password = _localPasswordController.text;
+    if (ssid.isEmpty) return; // keine SSID → nichts tun
+    if (ssid.toLowerCase() != 'esp' && password.isEmpty)
+      return; // Passwort nötig außer bei ESP
+    widget.onConnect(ssid, password);
   }
 
   @override
@@ -86,7 +82,7 @@ class _EspWifiCardState extends State<EspWifiCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Verbindungen',
+              'Verbindung',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -94,8 +90,6 @@ class _EspWifiCardState extends State<EspWifiCard> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // Wenn verbunden: nur Statuszeile + Trennen zeigen
             if ((widget.loginSaved == 1) && widget.ssid.isNotEmpty) ...[
               Row(
                 children: [
@@ -106,7 +100,6 @@ class _EspWifiCardState extends State<EspWifiCard> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // 'Trennen' Button rechtsbündig im Timer-Start-Stil
                   ElevatedButton(
                     onPressed: widget.onDisconnect,
                     style: ElevatedButton.styleFrom(
@@ -123,55 +116,71 @@ class _EspWifiCardState extends State<EspWifiCard> {
               ),
               const SizedBox(height: 8),
             ] else ...[
-              const Text('Nicht verbunden'),
-
+              const Text('SSID "ESP" für Betrieb im Access-Point-Modus.'),
               const Divider(height: 20, thickness: 1),
-
-              // Einfaches Formular: SSID + Passwort untereinander
               TextField(
                 controller: ssidController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'SSID',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  focusedBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.blueGrey),
+                  ),
+                  floatingLabelStyle: const TextStyle(color: Colors.blueGrey),
                 ),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: passwordController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Passwort',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  focusedBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.blueGrey),
+                  ),
+                  floatingLabelStyle: const TextStyle(color: Colors.blueGrey),
                 ),
                 obscureText: true,
               ),
               const SizedBox(height: 10),
               Row(
                 children: [
-                  ElevatedButton(
-                    onPressed: _localConnect,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueGrey,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(120, 40),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  Expanded(
+                    child: SizedBox(
+                      height: 40,
+                      child: ElevatedButton(
+                        onPressed: _localConnect,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueGrey,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text('Verbinden'),
                       ),
                     ),
-                    child: const Text('Verbinden'),
                   ),
                   const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: () {
-                      ssidController.clear();
-                      passwordController.clear();
-                    },
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(88, 40),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  Expanded(
+                    child: SizedBox(
+                      height: 40,
+                      child: OutlinedButton(
+                        onPressed: () {
+                          ssidController.clear();
+                          passwordController.clear();
+                        },
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Löschen',
+                          style: TextStyle(color: Colors.black87),
+                        ),
                       ),
                     ),
-                    child: const Text('Löschen'),
                   ),
                 ],
               ),
