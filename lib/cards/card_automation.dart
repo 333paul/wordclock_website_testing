@@ -90,7 +90,7 @@ class _AutomationCardState extends State<AutomationCard> {
   Widget _picker({
     required FixedExtentScrollController controller,
     required int itemCount,
-    required ValueChanged<int> onSelected,
+    required ValueChanged<int>? onSelected,
     double width = 44,
   }) {
     return SizedBox(
@@ -125,7 +125,7 @@ class _AutomationCardState extends State<AutomationCard> {
 
   @override
   Widget build(BuildContext context) {
-    const double colonWidth = 8.0; // Abstand für ":"
+    const double colonWidth = 8.0;
 
     return Card(
       color: Colors.white,
@@ -149,7 +149,7 @@ class _AutomationCardState extends State<AutomationCard> {
             ),
             const SizedBox(height: 12),
 
-            // Switch + Text wie bei NotificationCard
+            // Switch + Text
             Padding(
               padding: const EdgeInsets.only(left: 5, right: 2.0),
               child: Row(
@@ -178,142 +178,151 @@ class _AutomationCardState extends State<AutomationCard> {
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
 
-            // Zeit-Picker
+            // Zeit-Picker Zeile mit Opacity
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Ein
-                  Row(
-                    children: [
-                      const Text(
-                        'Ein:',
-                        style: TextStyle(fontSize: 13, color: Colors.black87),
-                      ),
-                      const SizedBox(width: 4),
-                      Row(
-                        children: [
-                          _picker(
-                            controller: _onHoursController,
-                            itemCount: 24,
-                            width: 44,
-                            onSelected: (i) {
-                              setState(() => _hourOn = i);
-                              try {
-                                widget.onOnTimeChanged(
-                                  _hourOn * 60 + _minuteOn,
-                                );
-                              } catch (_) {}
-                            },
-                          ),
-                          const SizedBox(width: 0),
-                          SizedBox(
-                            width: colonWidth,
-                            child: const Center(
-                              child: Text(
-                                ':',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
+              child: Opacity(
+                opacity: _enabled ? 1.0 : 0.4, // ausgegraut, wenn NightMode aus
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Ein
+                    Row(
+                      children: [
+                        const Text(
+                          'Ein:',
+                          style: TextStyle(fontSize: 13, color: Colors.black87),
+                        ),
+                        const SizedBox(width: 4),
+                        Row(
+                          children: [
+                            _picker(
+                              controller: _onHoursController,
+                              itemCount: 24,
+                              width: 44,
+                              onSelected:
+                                  _enabled
+                                      ? (i) {
+                                        setState(() => _hourOn = i);
+                                        try {
+                                          widget.onOnTimeChanged(
+                                            _hourOn * 60 + _minuteOn,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                      : null,
+                            ),
+                            SizedBox(
+                              width: colonWidth,
+                              child: const Center(
+                                child: Text(
+                                  ':',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 0),
-                          _picker(
-                            controller: _onMinutesController,
-                            itemCount: 60,
-                            width: 44,
-                            onSelected: (i) {
-                              setState(() => _minuteOn = i);
-                              try {
-                                widget.onOnTimeChanged(
-                                  _hourOn * 60 + _minuteOn,
-                                );
-                              } catch (_) {}
-                            },
-                          ),
-                          const SizedBox(width: 2),
-                          const Text(
-                            'Uhr',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.black54,
+                            _picker(
+                              controller: _onMinutesController,
+                              itemCount: 60,
+                              width: 44,
+                              onSelected:
+                                  _enabled
+                                      ? (i) {
+                                        setState(() => _minuteOn = i);
+                                        try {
+                                          widget.onOnTimeChanged(
+                                            _hourOn * 60 + _minuteOn,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                      : null,
                             ),
-                          ),
-                          const SizedBox(width: 16), // Abstand zu Aus
-                        ],
-                      ),
-                    ],
-                  ),
-
-                  // Aus
-                  Row(
-                    children: [
-                      const Text(
-                        'Aus:',
-                        style: TextStyle(fontSize: 13, color: Colors.black87),
-                      ),
-                      const SizedBox(width: 4),
-                      Row(
-                        children: [
-                          _picker(
-                            controller: _offHoursController,
-                            itemCount: 24,
-                            width: 44,
-                            onSelected: (i) {
-                              setState(() => _hourOff = i);
-                              try {
-                                widget.onOffTimeChanged(
-                                  _hourOff * 60 + _minuteOff,
-                                );
-                              } catch (_) {}
-                            },
-                          ),
-                          const SizedBox(width: 0),
-                          SizedBox(
-                            width: colonWidth,
-                            child: const Center(
-                              child: Text(
-                                ':',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
+                            const SizedBox(width: 2),
+                            const Text(
+                              'Uhr',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                        ),
+                      ],
+                    ),
+                    // Aus
+                    Row(
+                      children: [
+                        const Text(
+                          'Aus:',
+                          style: TextStyle(fontSize: 13, color: Colors.black87),
+                        ),
+                        const SizedBox(width: 4),
+                        Row(
+                          children: [
+                            _picker(
+                              controller: _offHoursController,
+                              itemCount: 24,
+                              width: 44,
+                              onSelected:
+                                  _enabled
+                                      ? (i) {
+                                        setState(() => _hourOff = i);
+                                        try {
+                                          widget.onOffTimeChanged(
+                                            _hourOff * 60 + _minuteOff,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                      : null,
+                            ),
+                            SizedBox(
+                              width: colonWidth,
+                              child: const Center(
+                                child: Text(
+                                  ':',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 0),
-                          _picker(
-                            controller: _offMinutesController,
-                            itemCount: 60,
-                            width: 44,
-                            onSelected: (i) {
-                              setState(() => _minuteOff = i);
-                              try {
-                                widget.onOffTimeChanged(
-                                  _hourOff * 60 + _minuteOff,
-                                );
-                              } catch (_) {}
-                            },
-                          ),
-                          const SizedBox(width: 2),
-                          const Text(
-                            'Uhr',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.black54,
+                            _picker(
+                              controller: _offMinutesController,
+                              itemCount: 60,
+                              width: 44,
+                              onSelected:
+                                  _enabled
+                                      ? (i) {
+                                        setState(() => _minuteOff = i);
+                                        try {
+                                          widget.onOffTimeChanged(
+                                            _hourOff * 60 + _minuteOff,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                      : null,
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
+                            const SizedBox(width: 2),
+                            const Text(
+                              'Uhr',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
