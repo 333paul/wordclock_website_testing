@@ -6,6 +6,7 @@ import 'cards/card_notification.dart' as notif;
 import 'cards/card_timer.dart' as timer;
 import 'cards/card_alarm.dart' as alarm;
 import 'cards/card_automation.dart' as automation;
+import 'cards/card_offline_mode.dart' as offline;
 
 void main() {
   runApp(const MainApp());
@@ -365,9 +366,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
     }
     if (alarmEnable != _baseAlarmEnable) return true;
     if (offlineMode != _baseOfflineMode) return true;
-    if (utcaktsekunde != _baseUtcaktsekunde) return true;
-    if (utcaktminute != _baseUtcaktminute) return true;
-    if (utcaktstunde != _baseUtcaktstunde) return true;
     if (notificationEnable != _baseNotificationEnable) return true;
     return false;
   }
@@ -995,10 +993,47 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         Center(
                           child: SizedBox(
                             width: cardWidth,
-                            child: card_offline_mode(),
+                            child: offline.OfflineModeCard(
+                              offlineMode: offlineMode,
+                              utcSecond: utcaktsekunde,
+                              utcMinute: utcaktminute,
+                              utcHour: utcaktstunde,
+                              onOfflineModeChanged:
+                                  (v) => setState(() {
+                                    offlineMode = v;
+                                    debugPrint('offlineMode=$offlineMode');
+                                    _updateNewChanges();
+                                  }),
+                              onSetUtcTime:
+                                  (h, m, s) => setState(() {
+                                    utcaktstunde = h;
+                                    utcaktminute = m;
+                                    utcaktsekunde = s;
+                                    debugPrint('offline time set: $h:$m:$s');
+                                  }),
+                            ),
                           ),
                         ),
-                      if (cardWidth == null) card_offline_mode(),
+                      if (cardWidth == null)
+                        offline.OfflineModeCard(
+                          offlineMode: offlineMode,
+                          utcSecond: utcaktsekunde,
+                          utcMinute: utcaktminute,
+                          utcHour: utcaktstunde,
+                          onOfflineModeChanged:
+                              (v) => setState(() {
+                                offlineMode = v;
+                                debugPrint('offlineMode=$offlineMode');
+                                _updateNewChanges();
+                              }),
+                          onSetUtcTime:
+                              (h, m, s) => setState(() {
+                                utcaktstunde = h;
+                                utcaktminute = m;
+                                utcaktsekunde = s;
+                                debugPrint('offline time set: $h:$m:$s');
+                              }),
+                        ),
                       const SizedBox(height: 12),
                       if (cardWidth != null)
                         Center(
