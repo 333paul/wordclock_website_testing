@@ -4,6 +4,7 @@ import 'cards/card_visualisation.dart' as visual;
 import 'cards/card_connections.dart' as conn;
 import 'cards/card_notification.dart' as notif;
 import 'cards/card_timer.dart' as timer;
+import 'cards/card_alarm.dart' as alarm;
 
 void main() {
   runApp(const MainApp());
@@ -1112,6 +1113,33 @@ class _HomeScaffoldState extends State<HomeScaffold>
           }),
     );
   }
+
+  // Build the alarm card using this state's canonical alarm fields so the
+  // AlarmCard can update the state via callbacks.
+  Widget card_alarm() {
+    return alarm.AlarmCard(
+      alarmEnable: alarmEnable,
+      onAlarmEnableChanged:
+          (val) => setState(() {
+            alarmEnable = val;
+            if (val == 0) {
+              // When alarm is deactivated externally, clear stored time fields
+              alarmTimeStunden = 0;
+              alarmTimeMinuten = 0;
+            }
+            debugPrint('Alarm enable changed -> alarmEnable=$alarmEnable');
+          }),
+      onAlarmTimeChanged:
+          (totalMinutes) => setState(() {
+            final safe = totalMinutes.clamp(0, 24 * 60 - 1);
+            alarmTimeStunden = safe ~/ 60;
+            alarmTimeMinuten = safe % 60;
+            debugPrint(
+              'Alarm time set -> ${alarmTimeStunden}:${alarmTimeMinuten}',
+            );
+          }),
+    );
+  }
 }
 
 // --- Cards: keine horizontalen Margins mehr, Spalten-Padding sorgt für Abstand ---
@@ -1144,5 +1172,4 @@ Widget cardBase(String title) {
 }
 
 Widget card_automation() => cardBase('Automation');
-Widget card_alarm() => cardBase('Alarm');
 Widget card_offline_mode() => cardBase('Offline Mode');
