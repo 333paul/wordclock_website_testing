@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 
 class AlarmCard extends StatefulWidget {
-  final int alarmEnable; // 0 = aus, 1 = aktiv
-  final ValueChanged<int>
-  onAlarmEnableChanged; // inform parent when enable toggles
-  final ValueChanged<int> onAlarmTimeChanged; // total minutes since midnight
+  final int alarmEnable;
+  final ValueChanged<int> onAlarmEnableChanged;
+  final ValueChanged<int> onAlarmTimeChanged;
 
   const AlarmCard({
     Key? key,
@@ -38,14 +37,12 @@ class _AlarmCardState extends State<AlarmCard> {
       initialItem: _selectedMinutes,
     );
 
-    // If the alarm is active on creation, start checking the clock.
     if (_isRunning) _startClockWatcher();
   }
 
   @override
   void didUpdateWidget(covariant AlarmCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If external owner disabled the alarm, make sure we stop.
     if (oldWidget.alarmEnable == 1 && widget.alarmEnable == 0 && _isRunning) {
       _stopClockWatcher();
       setState(() {
@@ -61,13 +58,11 @@ class _AlarmCardState extends State<AlarmCard> {
 
   void _startClockWatcher() {
     _timer?.cancel();
-    // Check every second whether the real clock matches the selected time
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       final now = DateTime.now();
       if (_isRunning &&
           now.hour == _selectedHours &&
           now.minute == _selectedMinutes) {
-        // Alarm time reached
         _timer?.cancel();
         setState(() {
           _isRunning = false;
@@ -88,7 +83,6 @@ class _AlarmCardState extends State<AlarmCard> {
 
   void _toggleAlarm() {
     if (_isFinished) {
-      // Reset
       setState(() {
         _isFinished = false;
         _isRunning = false;
@@ -101,12 +95,10 @@ class _AlarmCardState extends State<AlarmCard> {
     }
 
     if (_isRunning) {
-      // Deactivate
       _stopClockWatcher();
       setState(() => _isRunning = false);
       widget.onAlarmEnableChanged(0);
     } else {
-      // Activate: read current wheel positions and start watcher
       setState(() {
         _selectedHours = _hoursController.selectedItem;
         _selectedMinutes = _minutesController.selectedItem;
@@ -214,224 +206,134 @@ class _AlarmCardState extends State<AlarmCard> {
               ),
             ),
             const SizedBox(height: 12),
-            // Responsive spacing: compute gap from available width so the
-            // space between Hours, Minutes and 'Uhr' scales with the card.
             LayoutBuilder(
               builder: (context, constraints) {
-                // widths of the two pickers base size
-                const double basePickerWidth = 70.0;
-                // approximate width for the 'Uhr' label
-                const double labelWidth = 40.0;
-                // width reserved for the colon between pickers
-                const double colonWidth = 18.0;
-                const double minGap = 8.0;
-                const double minPickerWidth = 48.0;
-                final double avail = constraints.maxWidth;
+                double totalWidth = constraints.maxWidth;
 
-                // We want four equal gaps: outer-left, between1, between2, outer-right
-                const int gapCount = 4;
+                // Kleinere Abstände
+                const double gapHM = 1.0; // Stunden <-> Minuten
+                const double gapMU = 2.0; // Minuten <-> Uhr
+                const double colonWidth = 12.0;
 
-                // If there's not enough space for the base sizes + min gaps,
-                // scale down the pickers proportionally (but not below minPickerWidth).
-                final double requiredForFixed =
-                    basePickerWidth * 2 +
-                    labelWidth +
-                    colonWidth +
-                    minGap * gapCount;
-                double pickerWidth = basePickerWidth;
-                if (avail < requiredForFixed) {
-                  final double remainingForPickers = (avail -
-                          labelWidth -
-                          minGap * gapCount)
-                      .clamp(0.0, double.infinity);
-                  final double scale =
-                      remainingForPickers / (basePickerWidth * 2);
-                  pickerWidth = (basePickerWidth * scale).clamp(
-                    minPickerWidth,
-                    basePickerWidth,
-                  );
-                }
+                // Picker-Grundwerte
+                const double pickerMax = 70.0;
+                const double pickerMin = 44.0;
+                const double labelWidth = 26.0;
 
-                final double totalFixed =
-                    pickerWidth * 2 + labelWidth + colonWidth;
-                final double remaining = (avail - totalFixed).clamp(
-                  0.0,
-                  double.infinity,
-                );
+                // Gesamter Platzbedarf für horizontal
+                double requiredWidth =
+                    pickerMax * 2 + gapHM * 2 + colonWidth + gapMU + labelWidth;
 
-                // Prefer outer gaps to be larger than inner gaps. We model
-                // outer:inner as 2:1. That means total units = 2+1+1+2 = 6 units.
-                const double minOuterGap = 6.0;
-
-                // Make the gap between hours and minutes smaller than the gap
-                // between minutes and the 'Uhr' label. We'll compute three
-                // gaps: gapHM (hours-minutes), gapMU (minutes-Uhr), and
-                // outerGap (left/right). outerGap should absorb most extra
-                // space. Enforce sensible minimums.
-                const double minInnerHM = 1.0; // very small
-                const double minInnerMU = 4.0; // somewhat larger
-                const double maxInnerMU = 12.0;
-
-                double gapHM;
-                double gapMU;
-                double outerGap;
-
-                // Minimal total width required for horizontal layout (include colon)
-                final double minTotal =
-                    2.0 * minPickerWidth +
-                    labelWidth +
-                    colonWidth +
-                    minInnerHM +
-                    minInnerMU +
-                    2.0 * minOuterGap;
-
-                if (avail < minTotal) {
-                  // Not enough room: we'll stack the pickers vertically instead
+                // Wenn zu wenig Platz → vertikales Layout
+                if (totalWidth < requiredWidth + 40) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      SizedBox(
-                        width: minPickerWidth,
-                        child: Center(
-                          child: _buildPicker(
-                            itemCount: 24,
-                            controller: _hoursController,
-                            onSelected:
-                                (i) => setState(() => _selectedHours = i),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: pickerMin,
+                            child: _buildPicker(
+                              itemCount: 24,
+                              controller: _hoursController,
+                              onSelected:
+                                  (i) => setState(() => _selectedHours = i),
+                            ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: minPickerWidth,
-                        child: Center(
-                          child: _buildPicker(
-                            itemCount: 60,
-                            controller: _minutesController,
-                            onSelected:
-                                (i) => setState(() => _selectedMinutes = i),
+                          const SizedBox(width: 4),
+                          const Text(':', style: TextStyle(fontSize: 18)),
+                          const SizedBox(width: 4),
+                          SizedBox(
+                            width: pickerMin,
+                            child: _buildPicker(
+                              itemCount: 60,
+                              controller: _minutesController,
+                              onSelected:
+                                  (i) => setState(() => _selectedMinutes = i),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Uhr',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.black54,
+                      const SizedBox(height: 4),
+                      const Text('Uhr'),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _toggleAlarm,
+                          style: buttonStyle,
+                          child: Text(buttonText),
                         ),
                       ),
                     ],
                   );
-                } else if (remaining <= 0) {
-                  // No extra space — fallback to minima
-                  gapHM = minInnerHM;
-                  gapMU = minInnerMU;
-                  outerGap = minOuterGap;
-                } else {
-                  // Try to reserve minima for inner gaps and give remainder to outerGap
-                  final double minRequired =
-                      minInnerHM + minInnerMU + 2.0 * minOuterGap;
-                  if (remaining <= minRequired) {
-                    // Tight: give minima and whatever is left to outerGap
-                    gapHM = minInnerHM;
-                    gapMU = minInnerMU;
-                    outerGap = ((remaining - gapHM - gapMU) / 2.0).clamp(
-                      0.0,
-                      double.infinity,
-                    );
-                    if (outerGap < minOuterGap) outerGap = minOuterGap;
-                  } else {
-                    // Plenty of room: keep gapHM small, let gapMU grow a bit,
-                    // and assign leftover to outerGap.
-                    gapHM = minInnerHM;
-                    // Give up to 30% of extra space (beyond minima) to gapMU,
-                    // but cap it to avoid huge inner gaps.
-                    final double extra =
-                        remaining -
-                        (minInnerHM + minInnerMU + 2.0 * minOuterGap);
-                    gapMU = (minInnerMU + extra * 0.3).clamp(
-                      minInnerMU,
-                      maxInnerMU,
-                    );
-                    outerGap = ((remaining - gapHM - gapMU) / 2.0).clamp(
-                      minOuterGap,
-                      double.infinity,
-                    );
-                    if (!outerGap.isFinite) outerGap = minOuterGap;
-                  }
                 }
 
+                // passt → horizontales Layout
                 return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(width: outerGap), // outer left gap to card edge
-                    SizedBox(
-                      width: pickerWidth,
-                      child: Center(
-                        child: _buildPicker(
-                          itemCount: 24,
-                          controller: _hoursController,
-                          onSelected: (i) => setState(() => _selectedHours = i),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: gapHM / 2.0),
-                    SizedBox(
-                      width: 18.0,
-                      child: Center(
-                        child: Text(
-                          ':',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: pickerMax,
+                            child: _buildPicker(
+                              itemCount: 24,
+                              controller: _hoursController,
+                              onSelected:
+                                  (i) => setState(() => _selectedHours = i),
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: gapHM / 2.0),
-                    SizedBox(
-                      width: pickerWidth,
-                      child: Center(
-                        child: _buildPicker(
-                          itemCount: 60,
-                          controller: _minutesController,
-                          onSelected:
-                              (i) => setState(() => _selectedMinutes = i),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: gapMU),
-                    SizedBox(
-                      width: labelWidth,
-                      child: Center(
-                        child: Text(
-                          'Uhr',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.black54,
+                          SizedBox(width: gapHM),
+                          SizedBox(
+                            width: colonWidth,
+                            child: const Center(
+                              child: Text(':', style: TextStyle(fontSize: 18)),
+                            ),
                           ),
-                        ),
+                          SizedBox(width: gapHM),
+                          SizedBox(
+                            width: pickerMax,
+                            child: _buildPicker(
+                              itemCount: 60,
+                              controller: _minutesController,
+                              onSelected:
+                                  (i) => setState(() => _selectedMinutes = i),
+                            ),
+                          ),
+                          SizedBox(width: gapMU),
+                          SizedBox(
+                            width: labelWidth,
+                            child: const Center(
+                              child: Text(
+                                'Uhr',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(width: outerGap), // outer right gap to card edge
+                    const SizedBox(width: 14),
+                    SizedBox(
+                      width: 150,
+                      child: ElevatedButton(
+                        onPressed: _toggleAlarm,
+                        style: buttonStyle,
+                        child: Text(buttonText),
+                      ),
+                    ),
                   ],
                 );
               },
             ),
-            const SizedBox(height: 16),
-            _isFinished
-                ? OutlinedButton(
-                  onPressed: _toggleAlarm,
-                  style: buttonStyle,
-                  child: Text(buttonText),
-                )
-                : ElevatedButton(
-                  onPressed: _toggleAlarm,
-                  style: buttonStyle,
-                  child: Text(buttonText),
-                ),
+
+            const SizedBox(height: 8),
           ],
         ),
       ),
