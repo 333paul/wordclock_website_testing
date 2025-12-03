@@ -41,6 +41,10 @@ class _EspWifiCardState extends State<EspWifiCard> {
     if ((widget.passwordController == null) && widget.password.isNotEmpty) {
       _localPasswordController.text = widget.password;
     }
+
+    // Listener um UI neu zu zeichnen, wenn sich Textfelder ändern
+    _localSsidController.addListener(() => setState(() {}));
+    _localPasswordController.addListener(() => setState(() {}));
   }
 
   @override
@@ -57,9 +61,8 @@ class _EspWifiCardState extends State<EspWifiCard> {
   void _localConnect() {
     final ssid = _localSsidController.text.trim();
     final password = _localPasswordController.text;
-    if (ssid.isEmpty) return; // keine SSID → nichts tun
-    if (ssid.toLowerCase() != 'esp' && password.isEmpty)
-      return; // Passwort nötig außer bei ESP
+    if (ssid.isEmpty) return;
+    if (ssid.toLowerCase() != 'esp' && password.isEmpty) return;
     widget.onConnect(ssid, password);
   }
 
@@ -68,6 +71,15 @@ class _EspWifiCardState extends State<EspWifiCard> {
     final ssidController = widget.ssidController ?? _localSsidController;
     final passwordController =
         widget.passwordController ?? _localPasswordController;
+
+    final ssidText = ssidController.text.trim();
+    final passwordText = passwordController.text;
+
+    // Button-Aktivität prüfen
+    final canConnect =
+        ssidText.isNotEmpty &&
+        (ssidText.toLowerCase() == 'esp' || passwordText.isNotEmpty);
+    final canDelete = ssidText.isNotEmpty || passwordText.isNotEmpty;
 
     return Card(
       color: Colors.white,
@@ -152,10 +164,12 @@ class _EspWifiCardState extends State<EspWifiCard> {
                     child: SizedBox(
                       height: 40,
                       child: ElevatedButton(
-                        onPressed: _localConnect,
+                        onPressed: canConnect ? _localConnect : null,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueGrey,
-                          foregroundColor: Colors.white,
+                          backgroundColor:
+                              canConnect ? Colors.blueGrey : Colors.grey[300],
+                          foregroundColor:
+                              canConnect ? Colors.white : Colors.grey[600],
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -169,19 +183,22 @@ class _EspWifiCardState extends State<EspWifiCard> {
                     child: SizedBox(
                       height: 40,
                       child: OutlinedButton(
-                        onPressed: () {
-                          ssidController.clear();
-                          passwordController.clear();
-                        },
+                        onPressed:
+                            canDelete
+                                ? () {
+                                  ssidController.clear();
+                                  passwordController.clear();
+                                }
+                                : null,
                         style: OutlinedButton.styleFrom(
+                          backgroundColor: canDelete ? null : Colors.grey[100],
+                          foregroundColor:
+                              canDelete ? Colors.black87 : Colors.grey[500],
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        child: const Text(
-                          'Löschen',
-                          style: TextStyle(color: Colors.black87),
-                        ),
+                        child: const Text('Löschen'),
                       ),
                     ),
                   ),
