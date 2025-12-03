@@ -5,6 +5,7 @@ import 'cards/card_connections.dart' as conn;
 import 'cards/card_notification.dart' as notif;
 import 'cards/card_timer.dart' as timer;
 import 'cards/card_alarm.dart' as alarm;
+import 'cards/card_automation.dart' as automation;
 
 void main() {
   runApp(const MainApp());
@@ -352,13 +353,17 @@ class _HomeScaffoldState extends State<HomeScaffold>
     if (selectedColorGreen != _baseSelectedColorGreen) return true;
     if (selectedColorBlue != _baseSelectedColorBlue) return true;
     if (enableNightMode != _baseEnableNightMode) return true;
-    if (displayOffStunden != _baseDisplayOffStunden) return true;
-    if (displayOffMinuten != _baseDisplayOffMinuten) return true;
-    if (displayOnStunden != _baseDisplayOnStunden) return true;
-    if (displayOnMinuten != _baseDisplayOnMinuten) return true;
+    // Only treat the automation on/off times as a change when the
+    // night mode/automation is enabled. If automation is disabled we
+    // ignore the time fields so they don't trigger the 'Übernehmen'
+    // indicator by themselves.
+    if (enableNightMode == 1) {
+      if (displayOffStunden != _baseDisplayOffStunden) return true;
+      if (displayOffMinuten != _baseDisplayOffMinuten) return true;
+      if (displayOnStunden != _baseDisplayOnStunden) return true;
+      if (displayOnMinuten != _baseDisplayOnMinuten) return true;
+    }
     if (alarmEnable != _baseAlarmEnable) return true;
-    if (alarmTimeStunden != _baseAlarmTimeStunden) return true;
-    if (alarmTimeMinuten != _baseAlarmTimeMinuten) return true;
     if (offlineMode != _baseOfflineMode) return true;
     if (utcaktsekunde != _baseUtcaktsekunde) return true;
     if (utcaktminute != _baseUtcaktminute) return true;
@@ -437,6 +442,26 @@ class _HomeScaffoldState extends State<HomeScaffold>
     // debug mode and keep it lightweight.
     if (kDebugMode) {
       _printVisualVars('after setState');
+    }
+  }
+
+  // Helper to safely build an individual card. If the card's build throws
+  // an exception, return a visible error placeholder instead of letting the
+  // exception take down the whole settings page.
+  Widget _safeCard(Widget Function() builder, {String? label}) {
+    try {
+      return builder();
+    } catch (e, st) {
+      final tag = label ?? 'Card';
+      debugPrint('Error building $tag: $e\n$st');
+      return Card(
+        color: Colors.red.shade50,
+        child: ListTile(
+          leading: const Icon(Icons.error, color: Colors.red),
+          title: Text('Fehler in $tag'),
+          subtitle: Text(e.toString()),
+        ),
+      );
     }
   }
 
@@ -884,10 +909,69 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         Center(
                           child: SizedBox(
                             width: cardWidth,
-                            child: card_automation(),
+                            child: _safeCard(
+                              () => automation.AutomationCard(
+                                enableNightMode: enableNightMode,
+                                onHour: displayOnStunden,
+                                onMinute: displayOnMinuten,
+                                offHour: displayOffStunden,
+                                offMinute: displayOffMinuten,
+                                onEnableChanged: (v) {
+                                  setState(() {
+                                    enableNightMode = v;
+                                  });
+                                  _updateNewChanges();
+                                },
+                                onOnTimeChanged: (totalMinutes) {
+                                  setState(() {
+                                    displayOnStunden = totalMinutes ~/ 60;
+                                    displayOnMinuten = totalMinutes % 60;
+                                  });
+                                  _updateNewChanges();
+                                },
+                                onOffTimeChanged: (totalMinutes) {
+                                  setState(() {
+                                    displayOffStunden = totalMinutes ~/ 60;
+                                    displayOffMinuten = totalMinutes % 60;
+                                  });
+                                  _updateNewChanges();
+                                },
+                              ),
+                              label: 'Automation',
+                            ),
                           ),
                         ),
-                      if (cardWidth == null) card_automation(),
+                      if (cardWidth == null)
+                        _safeCard(
+                          () => automation.AutomationCard(
+                            enableNightMode: enableNightMode,
+                            onHour: displayOnStunden,
+                            onMinute: displayOnMinuten,
+                            offHour: displayOffStunden,
+                            offMinute: displayOffMinuten,
+                            onEnableChanged: (v) {
+                              setState(() {
+                                enableNightMode = v;
+                              });
+                              _updateNewChanges();
+                            },
+                            onOnTimeChanged: (totalMinutes) {
+                              setState(() {
+                                displayOnStunden = totalMinutes ~/ 60;
+                                displayOnMinuten = totalMinutes % 60;
+                              });
+                              _updateNewChanges();
+                            },
+                            onOffTimeChanged: (totalMinutes) {
+                              setState(() {
+                                displayOffStunden = totalMinutes ~/ 60;
+                                displayOffMinuten = totalMinutes % 60;
+                              });
+                              _updateNewChanges();
+                            },
+                          ),
+                          label: 'Automation',
+                        ),
                       const SizedBox(height: 12),
                       if (cardWidth != null)
                         Center(
