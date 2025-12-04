@@ -208,24 +208,39 @@ class _AlarmCardState extends State<AlarmCard> {
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (context, constraints) {
-                double totalWidth = constraints.maxWidth;
+                final double totalWidth = constraints.maxWidth;
 
-                // Kleinere Abstände
-                const double gapHM = 1.0; // Stunden <-> Minuten
-                const double gapMU = 2.0; // Minuten <-> Uhr
+                // Base sizes and visual gaps
                 const double colonWidth = 12.0;
-
-                // Picker-Grundwerte
-                const double pickerMax = 70.0;
-                const double pickerMin = 44.0;
                 const double labelWidth = 26.0;
+                const double pickerMax = 70.0;
+                const double pickerMin = 40.0; // allow a bit smaller
 
-                // Gesamter Platzbedarf für horizontal
-                double requiredWidth =
-                    pickerMax * 2 + gapHM * 2 + colonWidth + gapMU + labelWidth;
+                // Button area (kept at reasonable width but can be changed)
+                const double buttonWidth = 150.0;
+                const double buttonGap = 14.0;
 
-                // Wenn zu wenig Platz → vertikales Layout
-                if (totalWidth < requiredWidth + 40) {
+                // Minimal inner gaps (will scale down on small widths)
+                double minInnerHM = 0.5; // between hours and minutes
+                double minInnerMU = 1.0; // between minutes and 'Uhr'
+
+                // Compute space available for pickers + label + colon
+                final double spaceForPickers = (totalWidth -
+                        buttonWidth -
+                        buttonGap)
+                    .clamp(0.0, totalWidth);
+
+                // Minimal total required to keep everything in one row
+                final double minTotal =
+                    pickerMin * 2 +
+                    colonWidth +
+                    labelWidth +
+                    (minInnerHM * 2) +
+                    minInnerMU;
+
+                // If even the minimal layout doesn't fit, fall back to stacked layout
+                if (spaceForPickers < minTotal) {
+                  // stacked: keep button below but try to keep compact spacing
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -255,9 +270,9 @@ class _AlarmCardState extends State<AlarmCard> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       const Text('Uhr'),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -270,7 +285,27 @@ class _AlarmCardState extends State<AlarmCard> {
                   );
                 }
 
-                // passt → horizontales Layout
+                // Compute picker width to fit remaining space, prefer pickerMax
+                final double remaining =
+                    spaceForPickers - (labelWidth + colonWidth);
+                double pickerWidth = (remaining / 2.0).clamp(
+                  pickerMin,
+                  pickerMax,
+                );
+
+                // Recompute inner gaps to be small but proportional if extra space exists
+                final double used = pickerWidth * 2 + colonWidth + labelWidth;
+                final double extra = (spaceForPickers - used).clamp(
+                  0.0,
+                  double.infinity,
+                );
+                // inner gap HM minimal, give most extra to outer spacing implicitly
+                final double gapHM = minInnerHM;
+                final double gapMU = (minInnerMU + extra).clamp(
+                  minInnerMU,
+                  16.0,
+                );
+
                 return Row(
                   children: [
                     Expanded(
@@ -278,7 +313,7 @@ class _AlarmCardState extends State<AlarmCard> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           SizedBox(
-                            width: pickerMax,
+                            width: pickerWidth,
                             child: _buildPicker(
                               itemCount: 24,
                               controller: _hoursController,
@@ -295,7 +330,7 @@ class _AlarmCardState extends State<AlarmCard> {
                           ),
                           SizedBox(width: gapHM),
                           SizedBox(
-                            width: pickerMax,
+                            width: pickerWidth,
                             child: _buildPicker(
                               itemCount: 60,
                               controller: _minutesController,
@@ -319,9 +354,9 @@ class _AlarmCardState extends State<AlarmCard> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    SizedBox(width: buttonGap),
                     SizedBox(
-                      width: 150,
+                      width: buttonWidth,
                       child: ElevatedButton(
                         onPressed: _toggleAlarm,
                         style: buttonStyle,
