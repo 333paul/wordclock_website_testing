@@ -44,6 +44,7 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
   @override
   void didUpdateWidget(covariant OfflineModeCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     if (oldWidget.utcHour != widget.utcHour) {
       try {
         _hoursController.jumpToItem(widget.utcHour.clamp(0, 23));
@@ -59,6 +60,8 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
         _secondsController.jumpToItem(widget.utcSecond.clamp(0, 59));
       } catch (_) {}
     }
+
+    // Wenn Offline-Modus ausgeschaltet wird → Manuelle Einstellung schließen
     if (oldWidget.offlineMode == 1 && widget.offlineMode == 0) {
       setState(() => _showManual = false);
     }
@@ -111,6 +114,7 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
     final int hour = _hoursController.selectedItem % 24;
     final int minute = _minutesController.selectedItem % 60;
     final int second = _secondsController.selectedItem % 60;
+
     try {
       widget.onSetUtcTime(hour, minute, second);
     } catch (_) {}
@@ -159,7 +163,9 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                     value: enabled,
                     onChanged: (v) {
                       widget.onOfflineModeChanged(v ? 1 : 0);
-                      setState(() => _showManual = v && _showManual);
+                      setState(() {
+                        if (!v) _showManual = false;
+                      });
                     },
                     activeColor: Colors.blueGrey,
                   ),
@@ -176,37 +182,38 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
 
             const SizedBox(height: 16),
 
-            // -------------------------
-            // BUTTONS MIT WEICHER UI
-            // -------------------------
+            // ------------------------
+            // Buttons (getauschte Styles)
+            // ------------------------
             Row(
               children: [
+                // ---------------------------------------------------
+                // Manuelle Eingabe → WEISSER Button, SCHWARZER Text
+                // ---------------------------------------------------
                 Expanded(
                   child: SizedBox(
                     height: 44,
-                    child: ElevatedButton(
+                    child: OutlinedButton(
                       onPressed:
                           enabled
-                              ? () => setState(() => _showManual = true)
+                              ? () => setState(() => _showManual = !_showManual)
                               : null,
                       style: ButtonStyle(
                         animationDuration: Duration.zero,
-                        backgroundColor: MaterialStateProperty.resolveWith((
-                          states,
-                        ) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return Colors.grey[300];
-                          }
-                          return Colors.blueGrey;
+
+                        // ❗ Gleich wie beim Löschen-Button
+                        backgroundColor: MaterialStateProperty.resolveWith((s) {
+                          if (s.contains(MaterialState.disabled))
+                            return Colors.grey[100];
+                          return null; // wichtig: kein Weiß setzen → sonst wirkt der Rand schwächer
                         }),
-                        foregroundColor: MaterialStateProperty.resolveWith((
-                          states,
-                        ) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return Colors.grey[600];
-                          }
-                          return Colors.white;
+                        foregroundColor: MaterialStateProperty.resolveWith((s) {
+                          if (s.contains(MaterialState.disabled))
+                            return Colors.grey[500];
+                          return Colors.black87;
                         }),
+
+                        // ❗ KEIN eigener Rand! → Flutter setzt denselben Rand wie beim Löschen-Button
                         shape: MaterialStateProperty.all(
                           RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
@@ -217,29 +224,34 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                     ),
                   ),
                 ),
+
                 const SizedBox(width: 10),
+
+                // ---------------------------------------------------
+                // Systemzeit verwenden → BLUEGREY Button, WEIßE Schrift
+                // ---------------------------------------------------
                 Expanded(
                   child: SizedBox(
                     height: 44,
-                    child: OutlinedButton(
-                      onPressed: enabled ? _useSystemTime : null,
+                    child: ElevatedButton(
+                      onPressed:
+                          enabled
+                              ? () {
+                                _useSystemTime();
+                                setState(() => _showManual = false);
+                              }
+                              : null,
                       style: ButtonStyle(
                         animationDuration: Duration.zero,
-                        backgroundColor: MaterialStateProperty.resolveWith((
-                          states,
-                        ) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return Colors.grey[100];
-                          }
-                          return null;
+                        backgroundColor: MaterialStateProperty.resolveWith((s) {
+                          if (s.contains(MaterialState.disabled))
+                            return Colors.grey[300];
+                          return Colors.blueGrey;
                         }),
-                        foregroundColor: MaterialStateProperty.resolveWith((
-                          states,
-                        ) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return Colors.grey[500];
-                          }
-                          return Colors.black87;
+                        foregroundColor: MaterialStateProperty.resolveWith((s) {
+                          if (s.contains(MaterialState.disabled))
+                            return Colors.grey[600];
+                          return Colors.white;
                         }),
                         shape: MaterialStateProperty.all(
                           RoundedRectangleBorder(
@@ -247,7 +259,14 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                           ),
                         ),
                       ),
-                      child: const Text('Systemzeit verwenden'),
+                      child: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Systemzeit verwenden',
+                          maxLines: 1,
+                          overflow: TextOverflow.fade,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -256,10 +275,10 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
 
             const SizedBox(height: 16),
 
-            // -------------------------
-            // MANUAL PICKER BOX
-            // -------------------------
-            if (_showManual && enabled) ...[
+            // ------------------------
+            // Manuelle Einstellung
+            // ------------------------
+            if (_showManual && enabled)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -337,7 +356,6 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                   ],
                 ),
               ),
-            ],
           ],
         ),
       ),

@@ -569,9 +569,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                               _baseAlarmTimeStunden = alarmTimeStunden;
                               _baseAlarmTimeMinuten = alarmTimeMinuten;
                               _baseOfflineMode = offlineMode;
-                              _baseUtcaktsekunde = utcaktsekunde;
-                              _baseUtcaktminute = utcaktminute;
-                              _baseUtcaktstunde = utcaktstunde;
                               _baseNotificationEnable = notificationEnable;
                               newChanges = false;
                             });
@@ -636,9 +633,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                           _baseAlarmTimeStunden = alarmTimeStunden;
                           _baseAlarmTimeMinuten = alarmTimeMinuten;
                           _baseOfflineMode = offlineMode;
-                          _baseUtcaktsekunde = utcaktsekunde;
-                          _baseUtcaktminute = utcaktminute;
-                          _baseUtcaktstunde = utcaktstunde;
                           _baseNotificationEnable = notificationEnable;
                           newChanges = false;
                         });
