@@ -92,6 +92,7 @@ class _AutomationCardState extends State<AutomationCard> {
     required int itemCount,
     required ValueChanged<int>? onSelected,
     double width = 44,
+    bool enabled = true,
   }) {
     return SizedBox(
       width: width,
@@ -102,8 +103,11 @@ class _AutomationCardState extends State<AutomationCard> {
           itemExtent: 50,
           perspective: 0.00001,
           overAndUnderCenterOpacity: 0.0,
-          physics: const FixedExtentScrollPhysics(),
-          onSelectedItemChanged: onSelected,
+          physics:
+              enabled
+                  ? const FixedExtentScrollPhysics()
+                  : const NeverScrollableScrollPhysics(),
+          onSelectedItemChanged: enabled ? onSelected : null,
           childDelegate: ListWheelChildBuilderDelegate(
             childCount: itemCount,
             builder:
@@ -213,6 +217,7 @@ class _AutomationCardState extends State<AutomationCard> {
                                         } catch (_) {}
                                       }
                                       : null,
+                              enabled: _enabled,
                             ),
                             SizedBox(
                               width: colonWidth,
@@ -241,6 +246,7 @@ class _AutomationCardState extends State<AutomationCard> {
                                         } catch (_) {}
                                       }
                                       : null,
+                              enabled: _enabled,
                             ),
                             const SizedBox(width: 2),
                             const Text(
@@ -280,6 +286,7 @@ class _AutomationCardState extends State<AutomationCard> {
                                         } catch (_) {}
                                       }
                                       : null,
+                              enabled: _enabled,
                             ),
                             SizedBox(
                               width: colonWidth,
@@ -308,6 +315,7 @@ class _AutomationCardState extends State<AutomationCard> {
                                         } catch (_) {}
                                       }
                                       : null,
+                              enabled: _enabled,
                             ),
                             const SizedBox(width: 2),
                             const Text(
