@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'cards/card_visualisation.dart' as visual;
 import 'cards/card_connections.dart' as conn;
 import 'cards/card_notification.dart' as notif;
@@ -166,6 +167,10 @@ class HomeScaffold extends StatefulWidget {
 
 class _HomeScaffoldState extends State<HomeScaffold>
     with WidgetsBindingObserver {
+  // MethodChannel für NotificationListenerService
+  static const MethodChannel _notifChannel = MethodChannel(
+    'notification_permission_channel',
+  );
   // Track whether the preview image has been painted at least once. While
   // false we keep the scaffold background dark to avoid a brief white flash
   // when transitioning from the splash screen.
@@ -277,9 +282,40 @@ class _HomeScaffoldState extends State<HomeScaffold>
   late int _baseUtcaktstunde;
   late int _baseNotificationEnable;
 
+  // Handler für NotificationListenerService-Status
+  Future<void> _handleNotificationStatusChanged(MethodCall call) async {
+    if (call.method == 'onNotificationStatusChanged') {
+      final bool hasNotification = call.arguments == true;
+      if (notificationEnable == 1) {
+        if (hasNotification && newNotification != 1) {
+          setState(() {
+            newNotification = 1;
+          });
+          sendParametersToESP();
+        } else if (!hasNotification && newNotification != 0) {
+          setState(() {
+            newNotification = 0;
+          });
+          sendParametersToESP();
+        }
+      } else {
+        // Wenn Notification-Feature deaktiviert, immer auf 0
+        if (newNotification != 0) {
+          setState(() {
+            newNotification = 0;
+          });
+          sendParametersToESP();
+        }
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    // Android NotificationListenerService-Status abonnieren
+    _notifChannel.setMethodCallHandler(_handleNotificationStatusChanged);
+
     // Observe app lifecycle so we can cancel the timer if the app/web page
     // is backgrounded or closed.
     WidgetsBinding.instance.addObserver(this);
@@ -548,32 +584,56 @@ class _HomeScaffoldState extends State<HomeScaffold>
   }
 
   // Centralized debug helper that prints all canonical parameters to the
-  // console. Call this from UI actions that should emit the current state
-  // to the ESP (or for debugging during development).
+  // console and shows them in a temporary overlay popup for 10 seconds.
   void sendParametersToESP() {
-    debugPrint('--- sendParametersToESP ---');
-    debugPrint('powerOn=$powerOn newChanges=$newChanges');
-    debugPrint('isConnected=$isConnected');
-    debugPrint('loginsaved=$loginsaved ssid=$ssid password=$password');
-    debugPrint(
+    final List<String> lines = [
+      '--- sendParametersToESP ---',
+      'powerOn=$powerOn newChanges=$newChanges',
+      'isConnected=$isConnected',
+      'loginsaved=$loginsaved ssid=$ssid password=$password',
       'brightness=$brightness selectedColor=($selectedColorRed,$selectedColorGreen,$selectedColorBlue)',
-    );
-    debugPrint(
       'enableNightMode=$enableNightMode displayOn=${displayOnStunden}:${displayOnMinuten} displayOff=${displayOffStunden}:${displayOffMinuten}',
-    );
-    debugPrint(
       'alarmEnable=$alarmEnable alarmTime=${alarmTimeStunden}:${alarmTimeMinuten}',
-    );
-    debugPrint(
       'timerEnable=$timerEnable timerDuration=${timerDurationStunden}:${timerDurationMinuten}:${timerDurationSekunden} timerRemaining=${timerRemainingStunden}:${timerRemainingMinuten}:${timerRemainingSekunden}',
-    );
-    debugPrint(
       'offlineMode=$offlineMode utc=${utcaktstunde}:${utcaktminute}:${utcaktsekunde}',
-    );
-    debugPrint(
       'notificationEnable=$notificationEnable newNotification=$newNotification',
-    );
-    debugPrint('--- end sendParametersToESP ---');
+      '--- end sendParametersToESP ---',
+    ];
+    for (final line in lines) {
+      debugPrint(line);
+      print(line);
+    }
+
+    // Show SnackBar for 10 seconds
+    if (mounted) {
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      scaffoldMessenger.clearSnackBars();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children:
+                  lines
+                      .map(
+                        (l) => Text(
+                          l,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
+                      .toList(),
+            ),
+          ),
+          duration: const Duration(seconds: 10),
+          backgroundColor: Colors.black87,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -760,6 +820,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
                               _baseNotificationEnable = notificationEnable;
                               newChanges = false;
                             });
+                            sendParametersToESP();
                             // keep prior behaviour (close if possible)
                             Navigator.maybePop(context);
                           }),
@@ -824,6 +885,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
                           _baseNotificationEnable = notificationEnable;
                           newChanges = false;
                         });
+                        sendParametersToESP();
                         Navigator.maybePop(context);
                       },
                     )

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 
 class NotificationCard extends StatefulWidget {
   final int notificationEnable;
@@ -16,22 +19,82 @@ class NotificationCard extends StatefulWidget {
 
 class _NotificationCardState extends State<NotificationCard> {
   late bool _enabled;
+  bool _hasPermission = false;
+  static const MethodChannel _platform = MethodChannel(
+    'notification_permission_channel',
+  );
 
   @override
   void initState() {
     super.initState();
     _enabled = widget.notificationEnable == 1;
+
+    // Permission-Check erst nach dem ersten Frame starten
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPermission();
+    });
   }
 
-  void _toggleSwitch(bool value) {
-    setState(() {
-      _enabled = value;
-      widget.onNotificationChanged(_enabled ? 1 : 0);
-    });
+  Future<void> _checkPermission() async {
+    try {
+      final bool hasPermission = await _platform.invokeMethod(
+        'checkPermission',
+      );
+      if (!mounted) return;
+      setState(() {
+        _hasPermission = hasPermission;
+      });
+    } catch (e) {
+      debugPrint('Notification permission check failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _hasPermission = false;
+      });
+    }
+  }
+
+  void _toggleSwitch(bool value) async {
+    if (value) {
+      if (_hasPermission) {
+        if (!mounted) return;
+        setState(() {
+          _enabled = true;
+        });
+        widget.onNotificationChanged(1);
+        return;
+      }
+      // Wenn keine Berechtigung, einfach deaktiviert lassen und Info anzeigen
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('Benachrichtigungsberechtigung erforderlich'),
+              content: const Text(
+                'Die App benötigt Zugriff auf Benachrichtigungen. Bitte erlaube diese Berechtigung in den Systemeinstellungen.'
+                '\n\nDu kannst die Berechtigung später in den Android-Einstellungen erteilen.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+      );
+    } else {
+      if (!mounted) return;
+      setState(() {
+        _enabled = false;
+      });
+      widget.onNotificationChanged(0);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Nur auf Android anzeigen, sonst gar nichts rendern
+    if (kIsWeb || !Platform.isAndroid) return const SizedBox.shrink();
     return Card(
       color: Colors.white,
       elevation: 1,
