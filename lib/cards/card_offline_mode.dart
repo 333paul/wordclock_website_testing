@@ -129,7 +129,7 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
 
     return Card(
       color: Colors.white,
-      elevation: 0, // keine Schatten
+      elevation: 0,
       shape: RoundedRectangleBorder(
         side: BorderSide(color: Colors.grey.shade200, width: 1),
         borderRadius: BorderRadius.circular(16),
@@ -147,9 +147,9 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                 color: Colors.black87,
               ),
             ),
+
             const SizedBox(height: 14),
 
-            // Switch row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -159,9 +159,7 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                     value: enabled,
                     onChanged: (v) {
                       widget.onOfflineModeChanged(v ? 1 : 0);
-                      setState(() {
-                        if (!v) _showManual = false;
-                      });
+                      setState(() => _showManual = v && _showManual);
                     },
                     activeColor: Colors.blueGrey,
                   ),
@@ -175,9 +173,12 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                 ),
               ],
             ),
+
             const SizedBox(height: 16),
 
-            // Buttons
+            // -------------------------
+            // BUTTONS MIT WEICHER UI
+            // -------------------------
             Row(
               children: [
                 Expanded(
@@ -188,13 +189,29 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                           enabled
                               ? () => setState(() => _showManual = true)
                               : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueGrey,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                      style: ButtonStyle(
+                        animationDuration: Duration.zero,
+                        backgroundColor: MaterialStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (states.contains(MaterialState.disabled)) {
+                            return Colors.grey[300];
+                          }
+                          return Colors.blueGrey;
+                        }),
+                        foregroundColor: MaterialStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (states.contains(MaterialState.disabled)) {
+                            return Colors.grey[600];
+                          }
+                          return Colors.white;
+                        }),
+                        shape: MaterialStateProperty.all(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 10),
                       ),
                       child: const Text('Manuelle Eingabe'),
                     ),
@@ -206,11 +223,29 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                     height: 44,
                     child: OutlinedButton(
                       onPressed: enabled ? _useSystemTime : null,
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                      style: ButtonStyle(
+                        animationDuration: Duration.zero,
+                        backgroundColor: MaterialStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (states.contains(MaterialState.disabled)) {
+                            return Colors.grey[100];
+                          }
+                          return null;
+                        }),
+                        foregroundColor: MaterialStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (states.contains(MaterialState.disabled)) {
+                            return Colors.grey[500];
+                          }
+                          return Colors.black87;
+                        }),
+                        shape: MaterialStateProperty.all(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 10),
                       ),
                       child: const Text('Systemzeit verwenden'),
                     ),
@@ -218,15 +253,18 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                 ),
               ],
             ),
+
             const SizedBox(height: 16),
 
-            // Manual picker in separate box
+            // -------------------------
+            // MANUAL PICKER BOX
+            // -------------------------
             if (_showManual && enabled) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100], // leicht dunkleres Weiß
+                  color: Colors.grey[100],
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -271,17 +309,26 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 16),
+
                     SizedBox(
                       width: double.infinity,
                       height: 44,
                       child: ElevatedButton(
                         onPressed: _applyManual,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueGrey,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                        style: ButtonStyle(
+                          animationDuration: Duration.zero,
+                          backgroundColor: MaterialStateProperty.all(
+                            Colors.blueGrey,
+                          ),
+                          foregroundColor: MaterialStateProperty.all(
+                            Colors.white,
+                          ),
+                          shape: MaterialStateProperty.all(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                           ),
                         ),
                         child: const Text('Übernehmen'),

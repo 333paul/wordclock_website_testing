@@ -165,13 +165,30 @@ class _EspWifiCardState extends State<EspWifiCard> {
                       height: 40,
                       child: ElevatedButton(
                         onPressed: canConnect ? _localConnect : null,
-                        style: ElevatedButton.styleFrom(
+                        style: ButtonStyle(
+                          animationDuration: Duration.zero,
                           backgroundColor:
-                              canConnect ? Colors.blueGrey : Colors.grey[300],
+                              MaterialStateProperty.resolveWith<Color?>((
+                                states,
+                              ) {
+                                if (states.contains(MaterialState.disabled)) {
+                                  return Colors.grey[300];
+                                }
+                                return Colors.blueGrey;
+                              }),
                           foregroundColor:
-                              canConnect ? Colors.white : Colors.grey[600],
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                              MaterialStateProperty.resolveWith<Color?>((
+                                states,
+                              ) {
+                                if (states.contains(MaterialState.disabled)) {
+                                  return Colors.grey[600];
+                                }
+                                return Colors.white;
+                              }),
+                          shape: MaterialStateProperty.all(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                         ),
                         child: const Text('Verbinden'),
@@ -190,12 +207,26 @@ class _EspWifiCardState extends State<EspWifiCard> {
                                   passwordController.clear();
                                 }
                                 : null,
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: canDelete ? null : Colors.grey[100],
+                        style: ButtonStyle(
+                          animationDuration: Duration.zero,
+                          backgroundColor:
+                              MaterialStateProperty.resolveWith<Color?>((s) {
+                                if (s.contains(MaterialState.disabled)) {
+                                  return Colors.grey[100];
+                                }
+                                return null;
+                              }),
                           foregroundColor:
-                              canDelete ? Colors.black87 : Colors.grey[500],
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                              MaterialStateProperty.resolveWith<Color?>((s) {
+                                if (s.contains(MaterialState.disabled)) {
+                                  return Colors.grey[500];
+                                }
+                                return Colors.black87;
+                              }),
+                          shape: MaterialStateProperty.all(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                         ),
                         child: const Text('Löschen'),
