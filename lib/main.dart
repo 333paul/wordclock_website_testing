@@ -586,23 +586,47 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // Centralized debug helper that prints all canonical parameters to the
   // console and shows them in a temporary overlay popup for 10 seconds.
   void sendParametersToESP() {
-    final List<String> lines = [
-      '--- sendParametersToESP ---',
-      'powerOn=$powerOn newChanges=$newChanges',
+    final List<String> params = [
+      'powerOn=$powerOn',
+      'newChanges=$newChanges',
       'isConnected=$isConnected',
-      'loginsaved=$loginsaved ssid=$ssid password=$password',
-      'brightness=$brightness selectedColor=($selectedColorRed,$selectedColorGreen,$selectedColorBlue)',
-      'enableNightMode=$enableNightMode displayOn=${displayOnStunden}:${displayOnMinuten} displayOff=${displayOffStunden}:${displayOffMinuten}',
-      'alarmEnable=$alarmEnable alarmTime=${alarmTimeStunden}:${alarmTimeMinuten}',
-      'timerEnable=$timerEnable timerDuration=${timerDurationStunden}:${timerDurationMinuten}:${timerDurationSekunden} timerRemaining=${timerRemainingStunden}:${timerRemainingMinuten}:${timerRemainingSekunden}',
-      'offlineMode=$offlineMode utc=${utcaktstunde}:${utcaktminute}:${utcaktsekunde}',
-      'notificationEnable=$notificationEnable newNotification=$newNotification',
-      '--- end sendParametersToESP ---',
+      'loginsaved=$loginsaved',
+      'ssid=$ssid',
+      'password=$password',
+      'brightness=$brightness',
+      'selectedColorRed=$selectedColorRed',
+      'selectedColorGreen=$selectedColorGreen',
+      'selectedColorBlue=$selectedColorBlue',
+      'enableNightMode=$enableNightMode',
+      'displayOnStunden=$displayOnStunden',
+      'displayOnMinuten=$displayOnMinuten',
+      'displayOffStunden=$displayOffStunden',
+      'displayOffMinuten=$displayOffMinuten',
+      'alarmEnable=$alarmEnable',
+      'alarmTimeStunden=$alarmTimeStunden',
+      'alarmTimeMinuten=$alarmTimeMinuten',
+      'timerEnable=$timerEnable',
+      'timerDurationStunden=$timerDurationStunden',
+      'timerDurationMinuten=$timerDurationMinuten',
+      'timerDurationSekunden=$timerDurationSekunden',
+      'timerRemainingStunden=$timerRemainingStunden',
+      'timerRemainingMinuten=$timerRemainingMinuten',
+      'timerRemainingSekunden=$timerRemainingSekunden',
+      'offlineMode=$offlineMode',
+      'utcaktstunde=$utcaktstunde',
+      'utcaktminute=$utcaktminute',
+      'utcaktsekunde=$utcaktsekunde',
+      'notificationEnable=$notificationEnable',
+      'newNotification=$newNotification',
     ];
-    for (final line in lines) {
-      debugPrint(line);
-      print(line);
+    debugPrint('--- sendParametersToESP ---');
+    for (int i = 0; i < params.length; i += 2) {
+      final left = params[i];
+      final right = (i + 1 < params.length) ? params[i + 1] : '';
+      debugPrint(left + (right.isNotEmpty ? '    ' + right : ''));
+      print(left + (right.isNotEmpty ? '    ' + right : ''));
     }
+    debugPrint('--- end sendParametersToESP ---');
 
     // Show SnackBar for 10 seconds
     if (mounted) {
@@ -614,18 +638,45 @@ class _HomeScaffoldState extends State<HomeScaffold>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-              children:
-                  lines
-                      .map(
-                        (l) => Text(
-                          l,
+              children: [
+                const Text(
+                  '--- sendParametersToESP ---',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 13),
+                ),
+                ...List.generate((params.length + 1) ~/ 2, (i) {
+                  final left = params[i * 2];
+                  final right =
+                      (i * 2 + 1 < params.length) ? params[i * 2 + 1] : '';
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          left,
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 13,
                           ),
                         ),
-                      )
-                      .toList(),
+                      ),
+                      if (right.isNotEmpty)
+                        Expanded(
+                          child: Text(
+                            right,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                }),
+                const Text(
+                  '--- end sendParametersToESP ---',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 13),
+                ),
+              ],
             ),
           ),
           duration: const Duration(seconds: 10),
@@ -1046,7 +1097,42 @@ class _HomeScaffoldState extends State<HomeScaffold>
                 // colorNotifier if present or the canonical RGB fallback).
                 final bool uiOff = (powerOn == 0) || _inactivityUiOverlay;
                 if (uiOff) {
-                  return buildStack(Colors.black);
+                  // Bild normal (nicht transparent), nur Hintergrund schwarz
+                  return RepaintBoundary(
+                    child: Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(
+                          width: side,
+                          height: side,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: side,
+                                height: side,
+                                color: Colors.black,
+                              ),
+                              Builder(
+                                builder: (ctx) {
+                                  final dpr =
+                                      MediaQuery.of(ctx).devicePixelRatio;
+                                  final int cache = (side * dpr).round();
+                                  return Image.asset(
+                                    'assets/images/wordclock_preview.png',
+                                    fit: BoxFit.contain,
+                                    cacheWidth: cache,
+                                    cacheHeight: cache,
+                                    gaplessPlayback: true,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                 }
 
                 // If we have a color notifier use it so the background updates

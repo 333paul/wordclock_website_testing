@@ -63,7 +63,6 @@ class _NotificationCardState extends State<NotificationCard> {
         widget.onNotificationChanged(1);
         return;
       }
-      // Wenn keine Berechtigung, einfach deaktiviert lassen und Info anzeigen
       if (!mounted) return;
       showDialog<void>(
         context: context,
@@ -72,12 +71,32 @@ class _NotificationCardState extends State<NotificationCard> {
               title: const Text('Benachrichtigungsberechtigung erforderlich'),
               content: const Text(
                 'Die App benötigt Zugriff auf Benachrichtigungen. Bitte erlaube diese Berechtigung in den Systemeinstellungen.'
-                '\n\nDu kannst die Berechtigung später in den Android-Einstellungen erteilen.',
+                '\n\nDu kannst die Berechtigung jetzt direkt in den Android-Einstellungen erteilen.',
               ),
               actions: [
                 TextButton(
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    try {
+                      await _platform.invokeMethod('openSettings');
+                    } catch (e) {
+                      debugPrint('Fehler beim Öffnen der Einstellungen: $e');
+                    }
+                    // Warte kurz, dann prüfe erneut
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    await _checkPermission();
+                    if (_hasPermission && mounted) {
+                      setState(() {
+                        _enabled = true;
+                      });
+                      widget.onNotificationChanged(1);
+                    }
+                  },
+                  child: const Text('Einstellungen öffnen'),
+                ),
+                TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('OK'),
+                  child: const Text('Abbrechen'),
                 ),
               ],
             ),

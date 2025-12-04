@@ -220,7 +220,15 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                           ),
                         ),
                       ),
-                      child: const Text('Manuelle Eingabe'),
+                      child: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Manuelle\nEingabe',
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.fade,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -262,8 +270,9 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                       child: const FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          'Systemzeit verwenden',
-                          maxLines: 1,
+                          'Systemzeit\nverwenden',
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
                           overflow: TextOverflow.fade,
                         ),
                       ),
