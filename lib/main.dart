@@ -1367,7 +1367,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                           debugPrint(
                                             'offline time set: $h:$m:$s',
                                           );
-                                          // manual/system time applied -> publish params
                                           sendParametersToESP();
                                         }),
                                   ),
@@ -1391,6 +1390,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                       utcaktminute = m;
                                       utcaktsekunde = s;
                                       debugPrint('offline time set: $h:$m:$s');
+                                      sendParametersToESP();
                                     }),
                               ),
                             const SizedBox(height: 12),
