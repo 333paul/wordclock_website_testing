@@ -229,19 +229,14 @@ class _HomeScaffoldState extends State<HomeScaffold>
   int alarmTimeMinuten = 0; //Minutenzahl der Uhrzeit zum Auslösen des Weckers
 
   // Timer-Parameter
-  int timerEnable = 0; //Timer aktivieren/deaktivieren (in ESP-Code: if-Abfrage)
-  int timerDurationStunden =
-      0; //Stundendauer des Timers (in ESP-Code: Zeit zu aktueller dazurechnen und dann mit if-Abfrage zu dieser Zeit reagieren)
-  int timerDurationMinuten =
-      0; //Minutendauer des Timers (in ESP-Code: Zeit zu aktueller dazurechnen und dann mit if-Abfrage zu dieser Zeit reagieren)
-  int timerDurationSekunden =
-      0; //Sekundendauer des Timers (in ESP-Code: Zeit zu aktueller dazurechnen und dann mit if-Abfrage zu dieser Zeit reagieren)
-  int timerRemainingStunden = 0;
-  int timerRemainingMinuten = 0;
-  int timerRemainingSekunden = 0;
+  int timerEnable = 0; //Timer aktivieren/deaktivieren
+  int timerDurationStunden = 0;
+  int timerDurationMinuten = 0;
+  int timerDurationSekunden = 0;
+  int timerAusloesungStunden = 0;
+  int timerAusloesungMinuten = 0;
+  int timerAusloesungSekunden = 0;
   // Internal flag: expect the initial duration update right after a Start
-  // event from TimerCard. We use this to update main's canonical timer
-  // fields only once (on Start) and ignore subsequent per-tick updates.
   bool _expectingInitialTimerDuration = false;
 
   // Offline-Modus Parameter
@@ -609,9 +604,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
       'timerDurationStunden=$timerDurationStunden',
       'timerDurationMinuten=$timerDurationMinuten',
       'timerDurationSekunden=$timerDurationSekunden',
-      'timerRemainingStunden=$timerRemainingStunden',
-      'timerRemainingMinuten=$timerRemainingMinuten',
-      'timerRemainingSekunden=$timerRemainingSekunden',
+      'timerAusloesungStunden=$timerAusloesungStunden',
+      'timerAusloesungMinuten=$timerAusloesungMinuten',
+      'timerAusloesungSekunden=$timerAusloesungSekunden',
       'offlineMode=$offlineMode',
       'utcaktstunde=$utcaktstunde',
       'utcaktminute=$utcaktminute',
@@ -1565,53 +1560,83 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // Build the timer card using this state's canonical timer fields so the
   // TimerCard can update the state via callbacks.
   Widget card_timer() {
+    // Timer-Initialisierung: Berechne verbleibende Zeit nur, wenn mindestens eine Auslösezeit ≠ 0 ist
+    int initialHours = timerDurationStunden;
+    int initialMinutes = timerDurationMinuten;
+    int initialSeconds = timerDurationSekunden;
+    if (timerEnable == 1 &&
+        (timerAusloesungStunden != 0 ||
+            timerAusloesungMinuten != 0 ||
+            timerAusloesungSekunden != 0)) {
+      final now = DateTime.now();
+      int startSeconds =
+          timerAusloesungStunden * 3600 +
+          timerAusloesungMinuten * 60 +
+          timerAusloesungSekunden;
+      int durationSeconds =
+          timerDurationStunden * 3600 +
+          timerDurationMinuten * 60 +
+          timerDurationSekunden;
+      int ausloeseSeconds = (startSeconds + durationSeconds) % (24 * 3600);
+      int nowSeconds = now.hour * 3600 + now.minute * 60 + now.second;
+      // Prüfe, ob Timer abgelaufen ist (jetzt >= Auslösezeit + Dauer, inkl. Mitternacht-Überlauf)
+      bool expired = false;
+      if (startSeconds <= ausloeseSeconds) {
+        // Normaler Fall, kein Mitternacht-Überlauf
+        expired =
+            (nowSeconds >= ausloeseSeconds) || (nowSeconds < startSeconds);
+      } else {
+        // Mitternacht-Überlauf: Auslösung ist am nächsten Tag
+        expired =
+            (nowSeconds >= ausloeseSeconds) && (nowSeconds < startSeconds);
+      }
+      if (expired) {
+        initialHours = 0;
+        initialMinutes = 0;
+        initialSeconds = 0;
+      } else {
+        int remaining = (ausloeseSeconds - nowSeconds);
+        if (remaining < 0) remaining += 24 * 3600;
+        initialHours = remaining ~/ 3600;
+        initialMinutes = (remaining % 3600) ~/ 60;
+        initialSeconds = remaining % 60;
+      }
+    }
     return timer.TimerCard(
+      initialHours: initialHours,
+      initialMinutes: initialMinutes,
+      initialSeconds: initialSeconds,
       timerEnable: timerEnable,
       onTimerEnableChanged:
           (val) => setState(() {
-            // When TimerCard signals start (1) we expect the next
-            // onTimerDurationChanged call to carry the initial total seconds
-            // and should update the canonical hours/minutes/seconds once.
             _expectingInitialTimerDuration = val == 1;
             timerEnable = val;
             if (val == 0) {
-              // Stop or reset: clear canonical timer fields
               timerDurationStunden = 0;
               timerDurationMinuten = 0;
               timerDurationSekunden = 0;
-              // Also clear remaining timer fields when stopped/reset
-              timerRemainingStunden = 0;
-              timerRemainingMinuten = 0;
-              timerRemainingSekunden = 0;
+              timerAusloesungStunden = 0;
+              timerAusloesungMinuten = 0;
+              timerAusloesungSekunden = 0;
               _expectingInitialTimerDuration = false;
-              debugPrint(
-                'Timer started -> timerEnable=$timerEnable, timerDurationStunden=$timerDurationStunden, timerDurationMinuten=$timerDurationMinuten, timerDurationSekunden=$timerDurationSekunden',
-              );
               sendParametersToESP();
             } else {
-              debugPrint('Timer enable changed -> timerEnable=$timerEnable');
               sendParametersToESP();
             }
           }),
-      // TimerCard reports duration in seconds; store directly in TimerDuration
       onTimerDurationChanged:
           (seconds) => setState(() {
-            // Only accept the duration update if we're expecting the initial
-            // value (i.e., user pressed Start). Ignore per-tick updates so the
-            // canonical timer fields remain as the originally selected values.
             if (!_expectingInitialTimerDuration) return;
             _expectingInitialTimerDuration = false;
             final s = seconds.clamp(0, 24 * 3600);
             timerDurationStunden = s ~/ 3600;
             timerDurationMinuten = (s % 3600) ~/ 60;
             timerDurationSekunden = s % 60;
-            // Store remaining values snapshot when the timer is started
-            timerRemainingStunden = timerDurationStunden;
-            timerRemainingMinuten = timerDurationMinuten;
-            timerRemainingSekunden = timerDurationSekunden;
-            debugPrint(
-              'Timer started -> timerEnable=$timerEnable, timerDurationStunden=$timerDurationStunden, timerDurationMinuten=$timerDurationMinuten, timerDurationSekunden=$timerDurationSekunden',
-            );
+            // Speichere Systemzeit als Auslösezeit
+            final now = DateTime.now();
+            timerAusloesungStunden = now.hour;
+            timerAusloesungMinuten = now.minute;
+            timerAusloesungSekunden = now.second;
             sendParametersToESP();
           }),
     );

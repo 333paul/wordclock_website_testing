@@ -5,12 +5,18 @@ class TimerCard extends StatefulWidget {
   final int timerEnable; // 0 = aus, 1 = läuft
   final ValueChanged<int> onTimerEnableChanged;
   final ValueChanged<int> onTimerDurationChanged; // in Sekunden
+  final int initialHours;
+  final int initialMinutes;
+  final int initialSeconds;
 
   const TimerCard({
     Key? key,
     required this.timerEnable,
     required this.onTimerEnableChanged,
     required this.onTimerDurationChanged,
+    required this.initialHours,
+    required this.initialMinutes,
+    required this.initialSeconds,
   }) : super(key: key);
 
   @override
@@ -36,8 +42,42 @@ class _TimerCardState extends State<TimerCard> {
   @override
   void initState() {
     super.initState();
-    // initialize controllers at the currently selected items so the wheel
-    // shows the correct initial values and selectedItem reflects user input
+    // Set initial values from main.dart if timer is active
+    if (widget.timerEnable == 1) {
+      _selectedHours = widget.initialHours;
+      _selectedMinutes = widget.initialMinutes;
+      _selectedSeconds = widget.initialSeconds;
+      _isRunning = true;
+      _isFinished = false;
+      _remainingSeconds =
+          _selectedHours * 3600 + _selectedMinutes * 60 + _selectedSeconds;
+      // Start countdown immediately
+      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_remainingSeconds > 0) {
+          setState(() {
+            _remainingSeconds--;
+            _updateScrollControllers();
+          });
+          widget.onTimerDurationChanged(_remainingSeconds);
+        }
+        if (_remainingSeconds == 0) {
+          timer.cancel();
+          setState(() {
+            _isRunning = false;
+            _isFinished = true;
+          });
+          widget.onTimerEnableChanged(0);
+          widget.onTimerDurationChanged(0);
+        }
+      });
+    } else {
+      _selectedHours = 0;
+      _selectedMinutes = 0;
+      _selectedSeconds = 0;
+      _isRunning = false;
+      _isFinished = false;
+      _remainingSeconds = 0;
+    }
     _hoursController = FixedExtentScrollController(initialItem: _selectedHours);
     _minutesController = FixedExtentScrollController(
       initialItem: _selectedMinutes,
@@ -45,8 +85,6 @@ class _TimerCardState extends State<TimerCard> {
     _secondsController = FixedExtentScrollController(
       initialItem: _selectedSeconds,
     );
-    _isRunning = widget.timerEnable == 1;
-    _remainingSeconds = _totalSeconds;
   }
 
   @override
