@@ -94,33 +94,43 @@ class _AutomationCardState extends State<AutomationCard> {
     double width = 44,
     bool enabled = true,
   }) {
-    return SizedBox(
-      width: width,
-      height: 50,
-      child: ClipRect(
-        child: ListWheelScrollView.useDelegate(
-          controller: controller,
-          itemExtent: 50,
-          perspective: 0.00001,
-          overAndUnderCenterOpacity: 0.0,
-          physics:
-              enabled
-                  ? const FixedExtentScrollPhysics()
-                  : const NeverScrollableScrollPhysics(),
-          onSelectedItemChanged: enabled ? onSelected : null,
-          childDelegate: ListWheelChildBuilderDelegate(
-            childCount: itemCount,
-            builder:
-                (context, index) => Center(
-                  child: Text(
-                    index.toString().padLeft(2, '0'),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+    // Use a larger itemExtent for smoother scrolling, and avoid setState during scroll
+    return NotificationListener<ScrollEndNotification>(
+      onNotification: (notification) {
+        // Only fire callback when scroll ends
+        if (enabled && onSelected != null) {
+          final idx = controller.selectedItem;
+          onSelected(idx);
+        }
+        return false;
+      },
+      child: SizedBox(
+        width: width,
+        height: 56,
+        child: ClipRect(
+          child: ListWheelScrollView.useDelegate(
+            controller: controller,
+            itemExtent: 56,
+            perspective: 0.00001,
+            overAndUnderCenterOpacity: 0.0,
+            physics:
+                enabled
+                    ? const FixedExtentScrollPhysics()
+                    : const NeverScrollableScrollPhysics(),
+            childDelegate: ListWheelChildBuilderDelegate(
+              childCount: itemCount,
+              builder:
+                  (context, index) => Center(
+                    child: Text(
+                      index.toString().padLeft(2, '0'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
                     ),
                   ),
-                ),
+            ),
           ),
         ),
       ),
@@ -209,12 +219,7 @@ class _AutomationCardState extends State<AutomationCard> {
                               onSelected:
                                   _enabled
                                       ? (i) {
-                                        setState(() => _hourOn = i);
-                                        try {
-                                          widget.onOnTimeChanged(
-                                            _hourOn * 60 + _minuteOn,
-                                          );
-                                        } catch (_) {}
+                                        _hourOn = i;
                                       }
                                       : null,
                               enabled: _enabled,
@@ -238,12 +243,7 @@ class _AutomationCardState extends State<AutomationCard> {
                               onSelected:
                                   _enabled
                                       ? (i) {
-                                        setState(() => _minuteOn = i);
-                                        try {
-                                          widget.onOnTimeChanged(
-                                            _hourOn * 60 + _minuteOn,
-                                          );
-                                        } catch (_) {}
+                                        _minuteOn = i;
                                       }
                                       : null,
                               enabled: _enabled,
@@ -278,12 +278,7 @@ class _AutomationCardState extends State<AutomationCard> {
                               onSelected:
                                   _enabled
                                       ? (i) {
-                                        setState(() => _hourOff = i);
-                                        try {
-                                          widget.onOffTimeChanged(
-                                            _hourOff * 60 + _minuteOff,
-                                          );
-                                        } catch (_) {}
+                                        _hourOff = i;
                                       }
                                       : null,
                               enabled: _enabled,
@@ -307,12 +302,7 @@ class _AutomationCardState extends State<AutomationCard> {
                               onSelected:
                                   _enabled
                                       ? (i) {
-                                        setState(() => _minuteOff = i);
-                                        try {
-                                          widget.onOffTimeChanged(
-                                            _hourOff * 60 + _minuteOff,
-                                          );
-                                        } catch (_) {}
+                                        _minuteOff = i;
                                       }
                                       : null,
                               enabled: _enabled,
