@@ -113,39 +113,48 @@ class _AlarmCardState extends State<AlarmCard> {
     }
   }
 
-  Widget _buildPicker({
-    required int itemCount,
+  Widget _picker({
     required FixedExtentScrollController controller,
-    required ValueChanged<int> onSelected,
+    required int itemCount,
+    required ValueChanged<int>? onSelected,
+    double width = 44,
+    bool enabled = true,
   }) {
-    return SizedBox(
-      height: 50,
-      width: 70,
-      child: ClipRect(
-        child: ListWheelScrollView.useDelegate(
-          controller: controller,
-          itemExtent: 50,
-          perspective: 0.00001,
-          overAndUnderCenterOpacity: 0.0,
-          physics:
-              _isRunning
-                  ? const NeverScrollableScrollPhysics()
-                  : const FixedExtentScrollPhysics(),
-          onSelectedItemChanged: _isRunning ? null : onSelected,
-          childDelegate: ListWheelChildBuilderDelegate(
-            childCount: itemCount,
-            builder: (context, index) {
-              return Center(
-                child: Text(
-                  index.toString().padLeft(2, '0'),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+    return NotificationListener<ScrollEndNotification>(
+      onNotification: (notification) {
+        if (enabled && onSelected != null) {
+          final idx = controller.selectedItem;
+          onSelected(idx);
+        }
+        return false;
+      },
+      child: SizedBox(
+        width: width,
+        height: 56,
+        child: ClipRect(
+          child: ListWheelScrollView.useDelegate(
+            controller: controller,
+            itemExtent: 56,
+            perspective: 0.00001,
+            overAndUnderCenterOpacity: 0.0,
+            physics:
+                enabled
+                    ? const FixedExtentScrollPhysics()
+                    : const NeverScrollableScrollPhysics(),
+            childDelegate: ListWheelChildBuilderDelegate(
+              childCount: itemCount,
+              builder:
+                  (context, index) => Center(
+                    child: Text(
+                      index.toString().padLeft(2, '0'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
                   ),
-                ),
-              );
-            },
+            ),
           ),
         ),
       ),
@@ -208,153 +217,70 @@ class _AlarmCardState extends State<AlarmCard> {
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (context, constraints) {
-                final double totalWidth = constraints.maxWidth;
+                const double colonWidth = 8.0;
+                const double pickerWidth = 44.0;
+                const double uhrSpacing = 2.0;
+                final double buttonWidth = 150.0;
 
-                // Base sizes and visual gaps
-                const double colonWidth = 12.0;
-                const double labelWidth = 26.0;
-                const double pickerMax = 70.0;
-                const double pickerMin = 40.0; // allow a bit smaller
-
-                // Button area (kept at reasonable width but can be changed)
-                const double buttonWidth = 150.0;
-                const double buttonGap = 14.0;
-
-                // Minimal inner gaps (will scale down on small widths)
-                double minInnerHM = 0.5; // between hours and minutes
-                double minInnerMU = 1.0; // between minutes and 'Uhr'
-
-                // Compute space available for pickers + label + colon
-                final double spaceForPickers = (totalWidth -
-                        buttonWidth -
-                        buttonGap)
-                    .clamp(0.0, totalWidth);
-
-                // Minimal total required to keep everything in one row
-                final double minTotal =
-                    pickerMin * 2 +
-                    colonWidth +
-                    labelWidth +
-                    (minInnerHM * 2) +
-                    minInnerMU;
-
-                // If even the minimal layout doesn't fit, fall back to stacked layout
-                if (spaceForPickers < minTotal) {
-                  // stacked: keep button below but try to keep compact spacing
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: pickerMin,
-                            child: _buildPicker(
-                              itemCount: 24,
-                              controller: _hoursController,
-                              onSelected:
-                                  (i) => setState(() => _selectedHours = i),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Text(':', style: TextStyle(fontSize: 18)),
-                          const SizedBox(width: 4),
-                          SizedBox(
-                            width: pickerMin,
-                            child: _buildPicker(
-                              itemCount: 60,
-                              controller: _minutesController,
-                              onSelected:
-                                  (i) => setState(() => _selectedMinutes = i),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      const Text('Uhr'),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _toggleAlarm,
-                          style: buttonStyle,
-                          child: Text(buttonText),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                // Compute picker width to fit remaining space, prefer pickerMax
-                final double remaining =
-                    spaceForPickers - (labelWidth + colonWidth);
-                double pickerWidth = (remaining / 2.0).clamp(
-                  pickerMin,
-                  pickerMax,
-                );
-
-                // Recompute inner gaps to be small but proportional if extra space exists
-                final double used = pickerWidth * 2 + colonWidth + labelWidth;
-                final double extra = (spaceForPickers - used).clamp(
-                  0.0,
-                  double.infinity,
-                );
-                // inner gap HM minimal, give most extra to outer spacing implicitly
-                final double gapHM = minInnerHM;
-                final double gapMU = (minInnerMU + extra).clamp(
-                  minInnerMU,
+                // Dynamischer Abstand: 30% des verbleibenden Platzes zwischen Uhrzeit und Button
+                final double availableWidth =
+                    constraints.maxWidth -
+                    buttonWidth -
+                    (pickerWidth * 2 + colonWidth + uhrSpacing + 44);
+                final double spaceBetweenColumns = (availableWidth * 0.6).clamp(
                   16.0,
-                );
+                  100.0,
+                ); // min 16, max 100
 
                 return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: pickerWidth,
-                            child: _buildPicker(
-                              itemCount: 24,
-                              controller: _hoursController,
-                              onSelected:
-                                  (i) => setState(() => _selectedHours = i),
-                            ),
-                          ),
-                          SizedBox(width: gapHM),
-                          SizedBox(
-                            width: colonWidth,
-                            child: const Center(
-                              child: Text(':', style: TextStyle(fontSize: 18)),
-                            ),
-                          ),
-                          SizedBox(width: gapHM),
-                          SizedBox(
-                            width: pickerWidth,
-                            child: _buildPicker(
-                              itemCount: 60,
-                              controller: _minutesController,
-                              onSelected:
-                                  (i) => setState(() => _selectedMinutes = i),
-                            ),
-                          ),
-                          SizedBox(width: gapMU),
-                          SizedBox(
-                            width: labelWidth,
-                            child: const Center(
-                              child: Text(
-                                'Uhr',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black54,
-                                ),
+                    // Spalte 1: Uhrzeit
+                    Row(
+                      children: [
+                        _picker(
+                          controller: _hoursController,
+                          itemCount: 24,
+                          width: pickerWidth,
+                          onSelected:
+                              _isRunning
+                                  ? null
+                                  : (i) => setState(() => _selectedHours = i),
+                          enabled: !_isRunning,
+                        ),
+                        const SizedBox(width: 4),
+                        SizedBox(
+                          width: colonWidth,
+                          child: const Center(
+                            child: Text(
+                              ':',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(width: 4),
+                        _picker(
+                          controller: _minutesController,
+                          itemCount: 60,
+                          width: pickerWidth,
+                          onSelected:
+                              _isRunning
+                                  ? null
+                                  : (i) => setState(() => _selectedMinutes = i),
+                          enabled: !_isRunning,
+                        ),
+                        const SizedBox(width: uhrSpacing),
+                        const Text(
+                          'Uhr',
+                          style: TextStyle(fontSize: 13, color: Colors.black54),
+                        ),
+                      ],
                     ),
-                    SizedBox(width: buttonGap),
+                    SizedBox(width: spaceBetweenColumns),
+                    // Spalte 2: Button
                     SizedBox(
                       width: buttonWidth,
                       child: ElevatedButton(
@@ -367,8 +293,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 );
               },
             ),
-
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
           ],
         ),
       ),
