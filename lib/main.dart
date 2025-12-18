@@ -9,6 +9,7 @@ import 'cards/card_timer.dart' as timer;
 import 'cards/card_alarm.dart' as alarm;
 import 'cards/card_automation.dart' as automation;
 import 'cards/card_offline_mode.dart' as offline;
+import 'services/esp_api.dart' as esp;
 
 void main() {
   runApp(const MainApp());
@@ -18,26 +19,37 @@ void main() {
 int initialIsConnected = -1; // -1 = unknown, 0 = not connected, 1 = connected
 bool _startupConnectionError = false;
 
-// Simulated fetch from ESP. Per spec this sets an internal `int i = 0` and
-// inverts that into the connection state. If `i == 1` we mark a startup
-// connection error so the app shows the power-off UI and a blocking dialog.
+// Startup discovery with extended timeout to ensure connection state is known
+// before showing the main UI. Uses waitForBase() which retries with backoff.
 Future<void> getParametersFromESP() async {
-  // Simulated network/ESP call delay
-  await Future.delayed(const Duration(milliseconds: 200));
-  int i = 0; // change this to 1 to simulate another device holding the lock
-
-  if (i == 0) {
-    // invert and store
-    initialIsConnected = 1 - i; // will be 1
-    _startupConnectionError = false;
-    debugPrint(
-      'getParametersFromESP: success initialIsConnected=$initialIsConnected',
+  try {
+    debugPrint('[Startup] Searching for ESP with extended timeout...');
+    final base = await esp.EspApi.waitForBase(
+      overallTimeout: const Duration(seconds: 45),
     );
-  } else {
-    // simulate busy/locked device -> force powerOff UI after splash
+    if (base == null) {
+      initialIsConnected = 0;
+      _startupConnectionError = false;
+      debugPrint('[Startup] ESP not found after extended search');
+      return;
+    }
+    // Discovery succeeded -> consider connected immediately.
+    initialIsConnected = 1;
+    _startupConnectionError = false;
+    debugPrint('[Startup] Connected via ${base.toString()}');
+    // Try to fetch parameters to hydrate state, but do not downgrade
+    // the connection flag if hydration fails. This avoids showing
+    // "Nicht verbunden" when only the parameter fetch fails.
+    try {
+      await esp.EspApi.fetchParameters(base);
+      debugPrint('[Startup] Parameters fetched successfully');
+    } catch (e) {
+      debugPrint('[Startup] Hydration (parameters) failed: $e');
+    }
+  } catch (e) {
     initialIsConnected = 0;
-    _startupConnectionError = true;
-    debugPrint('getParametersFromESP: startup connection error (i=$i)');
+    _startupConnectionError = false;
+    debugPrint('[Startup] Discovery failed: $e');
   }
 }
 
@@ -50,13 +62,13 @@ class MainApp extends StatelessWidget {
       title: 'WORDCLOCK',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
-      // Show a small splash screen on startup before the main scaffold.
-      // Show a small splash screen on startup before the main scaffold.
-      // If an initialization Future is provided it will wait for it, otherwise
-      // it will show the splash for the given duration. Default duration: 4s.
+      // Show splash screen with extended discovery timeout. The splash waits
+      // for getParametersFromESP() which uses waitForBase() with 45s timeout,
+      // ensuring connection state is known before showing the main UI.
       home: SplashScreen(
         next: const HomeScaffold(),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 50),
+        initFuture: getParametersFromESP(),
       ),
     );
   }
@@ -111,12 +123,9 @@ class _SplashScreenState extends State<SplashScreen> {
       final Future<void> waitForInit =
           widget.initFuture ?? Future.delayed(widget.duration);
 
-      // Start a quick fetch of parameters from the ESP while the splash is
-      // visible so the app can reflect connection state immediately after
-      // the splash completes.
-      try {
-        await getParametersFromESP();
-      } catch (_) {}
+      // The initFuture (if provided) already calls getParametersFromESP(),
+      // so we do NOT call it again here to avoid redundant discovery.
+      // Just wait for the init future and precache the preview image.
 
       // Wait for both the init/duration and the preview (with a timeout).
       await Future.wait<void>([
@@ -167,6 +176,10 @@ class HomeScaffold extends StatefulWidget {
 
 class _HomeScaffoldState extends State<HomeScaffold>
     with WidgetsBindingObserver {
+  // Während wir Daten vom ESP hydratisieren, sollen Listener keine erneute
+  // Rückrechnung der Werte auslösen (sonst würden die frisch geladenen
+  // Farbwerte doppelt skaliert und verfälscht).
+  bool _hydratingFromEsp = false;
   // MethodChannel für NotificationListenerService
   static const MethodChannel _notifChannel = MethodChannel(
     'notification_permission_channel',
@@ -320,15 +333,12 @@ class _HomeScaffoldState extends State<HomeScaffold>
     // user interaction (slider drag / swatch tap). The listeners update the
     // canonical ints stored here but intentionally do not call setState.
 
-    // When building the initial Color for the visual card we need to
-    // compensate the stored channel values by the requested factor
-    // 5*(100/brightness) as requested. Guard against brightness==0
-    // to avoid division by zero and clamp results to valid bytes.
-    final double safeBrightness = (brightness == 0) ? 1.0 : brightness;
-    final double factor = 5 * (100 / safeBrightness);
-    final int initR = (selectedColorRed * factor).clamp(0, 255).round();
-    final int initG = (selectedColorGreen * factor).clamp(0, 255).round();
-    final int initB = (selectedColorBlue * factor).clamp(0, 255).round();
+    // Initialize the visual card with the raw RGB values (no brightness
+    // pre-scaling). The ESP expects the unscaled color channels; brightness
+    // is sent separately via the dedicated field.
+    final int initR = selectedColorRed.clamp(0, 255).toInt();
+    final int initG = selectedColorGreen.clamp(0, 255).toInt();
+    final int initB = selectedColorBlue.clamp(0, 255).toInt();
     colorNotifier = ValueNotifier<Color>(
       Color.fromARGB(255, initR, initG, initB),
     );
@@ -407,52 +417,175 @@ class _HomeScaffoldState extends State<HomeScaffold>
     }
 
     // Start inactivity timer management
-    _resetInactivityTimer();
+    // DEAKTIVIERT: Automatischer Logout nach Inaktivität
+    // _resetInactivityTimer();
+
+    // After first frame, try to pull current parameters from ESP once
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncFromEspOnce();
+      // Show connection status popup after a short delay
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        _showConnectionStatusDialog();
+      });
+    });
   }
 
-  Timer? _inactivityTimer;
+  // DEAKTIVIERT: Automatischer Logout nach Inaktivität
+  // Timer? _inactivityTimer;
+  //
+  // void _resetInactivityTimer([PointerEvent? _]) {
+  //   // any user interaction should clear the inactivity overlay immediately
+  //   if (_inactivityUiOverlay) {
+  //     setState(() {
+  //       _inactivityUiOverlay = false;
+  //     });
+  //   }
+  //   _inactivityTimer?.cancel();
+  //   _inactivityTimer = Timer(const Duration(minutes: 3), () {
+  //     // On inactivity -> mark disconnected, send parameters and show dialog
+  //     setState(() {
+  //       isConnected = 0;
+  //       _inactivityUiOverlay = true;
+  //     });
+  //     try {
+  //       sendParametersToESP();
+  //     } catch (_) {}
+  //     _showBlockingDialog(
+  //       title: 'Inaktivität',
+  //       message:
+  //           'Sie waren länger als 3 Minuten inaktiv, daher wurde Ihre Verbindung zur WordClock getrennt.',
+  //       buttonText: 'Erneut Verbinden',
+  //       buttonBackgroundColor: Colors.blueGrey,
+  //       buttonTextColor: Colors.white,
+  //       onButton: () async {
+  //         try {
+  //           await getParametersFromESP();
+  //         } catch (_) {}
+  //         setState(() {
+  //           isConnected =
+  //               initialIsConnected >= 0 ? initialIsConnected : isConnected;
+  //           if (!_startupConnectionError) {
+  //             powerOn = 1;
+  //             _inactivityUiOverlay = false;
+  //           }
+  //         });
+  //         if (!_startupConnectionError)
+  //           Navigator.of(context, rootNavigator: true).pop();
+  //       },
+  //     );
+  //   });
+  // }
 
-  void _resetInactivityTimer([PointerEvent? _]) {
-    // any user interaction should clear the inactivity overlay immediately
-    if (_inactivityUiOverlay) {
+  Future<void> _syncFromEspOnce() async {
+    try {
+      final base = await esp.EspApi.findBase();
+      if (base == null) return;
+      // Reaching the ESP is already proof of connectivity; mark both flags.
+      initialIsConnected = 1;
+      isConnected = 1;
+      final data = await esp.EspApi.fetchParameters(base);
+      if (!mounted) return;
+      _hydratingFromEsp = true;
       setState(() {
-        _inactivityUiOverlay = false;
+        // Keep connection flags as connected regardless of remote field
+        // contents to avoid the UI showing "Nicht verbunden" when the
+        // ESP returns a stale flag.
+        isConnected = 1;
+        powerOn =
+            (data['powerOn'] ?? powerOn) is int
+                ? data['powerOn']
+                : int.tryParse('${data['powerOn']}') ?? powerOn;
+        loginsaved =
+            (data['LoginSaved'] ?? data['loginSaved'] ?? loginsaved) is int
+                ? (data['LoginSaved'] ?? data['loginSaved'])
+                : int.tryParse('${data['LoginSaved'] ?? data['loginSaved']}') ??
+                    loginsaved;
+        ssid = (data['ssid'] as String?) ?? ssid;
+        password = (data['password'] as String?) ?? password;
+        brightness =
+            (data['brightness'] is num)
+                ? (data['brightness'] as num).toDouble()
+                : double.tryParse('${data['brightness']}') ?? brightness;
+        selectedColorRed = _intFrom(data['RGBValueRed'], selectedColorRed);
+        selectedColorGreen = _intFrom(
+          data['RGBValueGreen'],
+          selectedColorGreen,
+        );
+        selectedColorBlue = _intFrom(data['RGBValueBlue'], selectedColorBlue);
+        enableNightMode = _intFrom(data['EnableNightMode'], enableNightMode);
+        displayOnStunden = _intFrom(data['displayOnStunden'], displayOnStunden);
+        displayOnMinuten = _intFrom(data['displayOnMinuten'], displayOnMinuten);
+        displayOffStunden = _intFrom(
+          data['displayOffStunden'],
+          displayOffStunden,
+        );
+        displayOffMinuten = _intFrom(
+          data['displayOffMinuten'],
+          displayOffMinuten,
+        );
+        alarmEnable = _intFrom(data['alarmEnable'], alarmEnable);
+        alarmTimeStunden = _intFrom(data['alarmTimeStunden'], alarmTimeStunden);
+        alarmTimeMinuten = _intFrom(data['alarmTimeMinuten'], alarmTimeMinuten);
+        timerEnable = _intFrom(data['timerEnable'], timerEnable);
+        timerDurationStunden = _intFrom(
+          data['timerDurationStunden'],
+          timerDurationStunden,
+        );
+        timerDurationMinuten = _intFrom(
+          data['timerDurationMinuten'],
+          timerDurationMinuten,
+        );
+        timerDurationSekunden = _intFrom(
+          data['timerDurationSekunden'],
+          timerDurationSekunden,
+        );
+        timerAusloesungStunden = _intFrom(
+          data['timerAusloesungStunden'],
+          timerAusloesungStunden,
+        );
+        timerAusloesungMinuten = _intFrom(
+          data['timerAusloesungMinuten'],
+          timerAusloesungMinuten,
+        );
+        timerAusloesungSekunden = _intFrom(
+          data['timerAusloesungSekunden'],
+          timerAusloesungSekunden,
+        );
+        offlineMode = _intFrom(data['offlineMode'], offlineMode);
+        utcaktstunde = _intFrom(data['utcaktstunde'], utcaktstunde);
+        utcaktminute = _intFrom(data['utcaktminute'], utcaktminute);
+        utcaktsekunde = _intFrom(data['utcaktsekunde'], utcaktsekunde);
+        notificationEnable = _intFrom(
+          data['notificationEnable'],
+          notificationEnable,
+        );
+        newNotification = _intFrom(data['newNotification'], newNotification);
+        // keep controllers in sync
+        _ssidController.text = ssid;
+        _passwordController.text = password;
+        // notify
+        brightnessNotifier?.value = brightness;
+        colorNotifier?.value = Color.fromARGB(
+          255,
+          selectedColorRed,
+          selectedColorGreen,
+          selectedColorBlue,
+        );
+        _updateNewChanges();
       });
+      _hydratingFromEsp = false;
+    } catch (e) {
+      debugPrint('Initial ESP sync failed: $e');
+      _hydratingFromEsp = false;
     }
-    _inactivityTimer?.cancel();
-    _inactivityTimer = Timer(const Duration(minutes: 3), () {
-      // On inactivity -> mark disconnected, send parameters and show dialog
-      setState(() {
-        isConnected = 0;
-        _inactivityUiOverlay = true;
-      });
-      try {
-        sendParametersToESP();
-      } catch (_) {}
-      _showBlockingDialog(
-        title: 'Inaktivität',
-        message:
-            'Sie waren länger als 3 Minuten inaktiv, daher wurde Ihre Verbindung zur WordClock getrennt.',
-        buttonText: 'Erneut Verbinden',
-        buttonBackgroundColor: Colors.blueGrey,
-        buttonTextColor: Colors.white,
-        onButton: () async {
-          try {
-            await getParametersFromESP();
-          } catch (_) {}
-          setState(() {
-            isConnected =
-                initialIsConnected >= 0 ? initialIsConnected : isConnected;
-            if (!_startupConnectionError) {
-              powerOn = 1;
-              _inactivityUiOverlay = false;
-            }
-          });
-          if (!_startupConnectionError)
-            Navigator.of(context, rootNavigator: true).pop();
-        },
-      );
-    });
+  }
+
+  int _intFrom(dynamic v, int fallback) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    final p = int.tryParse('$v');
+    return p ?? fallback;
   }
 
   void _showBlockingDialog({
@@ -485,7 +618,125 @@ class _HomeScaffoldState extends State<HomeScaffold>
     );
   }
 
+  Future<void> _showConnectionStatusDialog() async {
+    // Fresh ping before showing the dialog to avoid stale startup flags.
+    try {
+      final base = await esp.EspApi.findBase(
+        cacheTimeout: const Duration(milliseconds: 600),
+        discoveryTimeout: const Duration(milliseconds: 1200),
+      );
+      if (base != null) {
+        initialIsConnected = 1;
+        if (mounted) {
+          setState(() {
+            isConnected = 1;
+          });
+        } else {
+          isConnected = 1;
+        }
+      } else {
+        initialIsConnected = 0;
+        if (mounted) {
+          setState(() {
+            isConnected = 0;
+          });
+        } else {
+          isConnected = 0;
+        }
+      }
+    } catch (_) {}
+
+    final bool connected = initialIsConnected == 1 || isConnected == 1;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: connected, // Only dismissible if connected
+      builder:
+          (ctx) => WillPopScope(
+            onWillPop:
+                () async => connected, // Prevent back button if not connected
+            child: AlertDialog(
+              title: Row(
+                children: [
+                  Icon(
+                    connected ? Icons.check_circle : Icons.error_outline,
+                    color: connected ? Colors.green : Colors.orange,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(connected ? 'Verbunden' : 'Nicht verbunden'),
+                ],
+              ),
+              content: Text(
+                connected
+                    ? 'Ihr Gerät hat die WordClock im Netzwerk gefunden und erfolgreich verbunden.\n\nSie können jetzt alle Einstellungen vornehmen.'
+                    : 'Ihr Gerät konnte die WordClock nicht im Netzwerk finden.\n\nStellen Sie sicher, dass Sie mit dem gleichen WLAN verbunden sind wie die WordClock oder verbinden Sie sich mit dem WordClock Access Point (SSID: "WordClock").\n\n⚠️ Sie müssen erst eine Verbindung herstellen, um die App nutzen zu können.',
+              ),
+              actions: [
+                if (connected)
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('OK'),
+                  ),
+                if (!connected)
+                  TextButton(
+                    onPressed: () async {
+                      // Don't close dialog, show searching indicator instead
+                      Navigator.of(ctx).pop();
+
+                      // Show searching dialog
+                      showDialog<void>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder:
+                            (searchCtx) => WillPopScope(
+                              onWillPop: () async => false,
+                              child: AlertDialog(
+                                title: const Text('Suche WordClock...'),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    CircularProgressIndicator(),
+                                    SizedBox(height: 16),
+                                    Text(
+                                      'Suche nach der WordClock im Netzwerk...',
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                      );
+
+                      // Try to reconnect with extended timeout
+                      try {
+                        await getParametersFromESP();
+                        await _syncFromEspOnce();
+                      } catch (_) {}
+
+                      // Close searching dialog
+                      if (mounted) {
+                        Navigator.of(context, rootNavigator: true).pop();
+                      }
+
+                      // Show result again
+                      if (mounted) {
+                        Future.delayed(const Duration(milliseconds: 300), () {
+                          if (!mounted) return;
+                          _showConnectionStatusDialog();
+                        });
+                      }
+                    },
+                    child: const Text('Erneut versuchen'),
+                  ),
+              ],
+            ),
+          ),
+    );
+  }
+
   void _colorNotifierListener() {
+    if (_hydratingFromEsp)
+      return; // frisch geladene Werte nicht erneut skalieren
     final c =
         colorNotifier?.value ??
         Color.fromARGB(
@@ -495,11 +746,8 @@ class _HomeScaffoldState extends State<HomeScaffold>
           selectedColorBlue,
         );
 
-    // Use the brightness value coming from the visual card's notifier if
-    // available — that ensures the slider's value is used when computing
-    // the scaled RGB components.
-    final currentBrightness = brightnessNotifier?.value ?? brightness;
-    _applyBrightnessToCanonical(c, currentBrightness);
+    // Write the raw RGB values; brightness is sent separately.
+    _applyBrightnessToCanonical(c, 0);
     _printVisualVars('color-notifier');
     // Keep `newChanges` up-to-date when the visual parameters change.
     // We avoid forcing a rebuild unless the `newChanges` flag actually
@@ -508,24 +756,13 @@ class _HomeScaffoldState extends State<HomeScaffold>
   }
 
   void _brightnessNotifierListener() {
+    if (_hydratingFromEsp) return; // während Hydration keine Doppel-Skalierung
     // keep canonical brightness in sync with the visual card's notifier.
     // Intentionally do not call setState here to avoid rebuilding the
     // whole scaffold on every slider movement; children reading the
     // notifier will update locally. We only update the stored value so
     // other logic (e.g. color scaling) can read the current brightness.
     brightness = brightnessNotifier?.value ?? brightness;
-    // Recalculate the canonical RGBs using the new brightness and the
-    // currently selected color so the device-facing values update
-    // immediately when the slider changes.
-    final c =
-        colorNotifier?.value ??
-        Color.fromARGB(
-          255,
-          selectedColorRed,
-          selectedColorGreen,
-          selectedColorBlue,
-        );
-    _applyBrightnessToCanonical(c, brightness);
     _printVisualVars('brightness-notifier');
     // Brightness changed -> update the newChanges flag as well.
     _updateNewChanges();
@@ -570,116 +807,65 @@ class _HomeScaffoldState extends State<HomeScaffold>
     }
   }
 
-  void _applyBrightnessToCanonical(Color c, double b) {
-    // Keep the existing scaling behaviour but read brightness from the
-    // provided value. Clamp to valid byte range before rounding.
-    selectedColorRed = (c.red * (b / 500)).clamp(0, 255).round();
-    selectedColorGreen = (c.green * (b / 500)).clamp(0, 255).round();
-    selectedColorBlue = (c.blue * (b / 500)).clamp(0, 255).round();
+  void _applyBrightnessToCanonical(Color c, double _) {
+    // Send raw RGB values to the ESP; brightness is handled via its own field.
+    selectedColorRed = c.red.clamp(0, 255).toInt();
+    selectedColorGreen = c.green.clamp(0, 255).toInt();
+    selectedColorBlue = c.blue.clamp(0, 255).toInt();
   }
 
   // Centralized debug helper that prints all canonical parameters to the
   // console and shows them in a temporary overlay popup for 10 seconds.
   void sendParametersToESP() {
-    final List<String> params = [
-      'powerOn=$powerOn',
-      'newChanges=$newChanges',
-      'isConnected=$isConnected',
-      'loginsaved=$loginsaved',
-      'ssid=$ssid',
-      'password=$password',
-      'brightness=$brightness',
-      'selectedColorRed=$selectedColorRed',
-      'selectedColorGreen=$selectedColorGreen',
-      'selectedColorBlue=$selectedColorBlue',
-      'enableNightMode=$enableNightMode',
-      'displayOnStunden=$displayOnStunden',
-      'displayOnMinuten=$displayOnMinuten',
-      'displayOffStunden=$displayOffStunden',
-      'displayOffMinuten=$displayOffMinuten',
-      'alarmEnable=$alarmEnable',
-      'alarmTimeStunden=$alarmTimeStunden',
-      'alarmTimeMinuten=$alarmTimeMinuten',
-      'timerEnable=$timerEnable',
-      'timerDurationStunden=$timerDurationStunden',
-      'timerDurationMinuten=$timerDurationMinuten',
-      'timerDurationSekunden=$timerDurationSekunden',
-      'timerAusloesungStunden=$timerAusloesungStunden',
-      'timerAusloesungMinuten=$timerAusloesungMinuten',
-      'timerAusloesungSekunden=$timerAusloesungSekunden',
-      'offlineMode=$offlineMode',
-      'utcaktstunde=$utcaktstunde',
-      'utcaktminute=$utcaktminute',
-      'utcaktsekunde=$utcaktsekunde',
-      'notificationEnable=$notificationEnable',
-      'newNotification=$newNotification',
-    ];
-    debugPrint('--- sendParametersToESP ---');
-    for (int i = 0; i < params.length; i += 2) {
-      final left = params[i];
-      final right = (i + 1 < params.length) ? params[i + 1] : '';
-      debugPrint(left + (right.isNotEmpty ? '    ' + right : ''));
-      print(left + (right.isNotEmpty ? '    ' + right : ''));
-    }
-    debugPrint('--- end sendParametersToESP ---');
-
-    // Show SnackBar for 10 seconds
-    if (mounted) {
-      final scaffoldMessenger = ScaffoldMessenger.of(context);
-      scaffoldMessenger.clearSnackBars();
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '--- sendParametersToESP ---',
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 13),
-                ),
-                ...List.generate((params.length + 1) ~/ 2, (i) {
-                  final left = params[i * 2];
-                  final right =
-                      (i * 2 + 1 < params.length) ? params[i * 2 + 1] : '';
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          left,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      if (right.isNotEmpty)
-                        Expanded(
-                          child: Text(
-                            right,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                    ],
-                  );
-                }),
-                const Text(
-                  '--- end sendParametersToESP ---',
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          duration: const Duration(seconds: 10),
-          backgroundColor: Colors.black87,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    () async {
+      try {
+        final base = await esp.EspApi.findBase();
+        if (base == null) {
+          debugPrint('sendParametersToESP: ESP not found');
+          return;
+        }
+        // If we can reach the ESP, treat it as connected locally.
+        initialIsConnected = 1;
+        isConnected = 1;
+        final Map<String, String> fields = {
+          'powerOn': powerOn.toString(),
+          'isConnected': isConnected.toString(),
+          'loginSaved': loginsaved.toString(),
+          'ssid': ssid,
+          'password': password,
+          'brightness': brightness.toString(),
+          // map UI color into ESP RGB fields
+          'RGBValueRed': selectedColorRed.toString(),
+          'RGBValueGreen': selectedColorGreen.toString(),
+          'RGBValueBlue': selectedColorBlue.toString(),
+          'EnableNightMode': enableNightMode.toString(),
+          'displayOnStunden': displayOnStunden.toString(),
+          'displayOnMinuten': displayOnMinuten.toString(),
+          'displayOffStunden': displayOffStunden.toString(),
+          'displayOffMinuten': displayOffMinuten.toString(),
+          'alarmEnable': alarmEnable.toString(),
+          'alarmTimeStunden': alarmTimeStunden.toString(),
+          'alarmTimeMinuten': alarmTimeMinuten.toString(),
+          'timerEnable': timerEnable.toString(),
+          'timerDurationStunden': timerDurationStunden.toString(),
+          'timerDurationMinuten': timerDurationMinuten.toString(),
+          'timerDurationSekunden': timerDurationSekunden.toString(),
+          'timerAusloesungStunden': timerAusloesungStunden.toString(),
+          'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
+          'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
+          'offlineMode': offlineMode.toString(),
+          'utcaktstunde': utcaktstunde.toString(),
+          'utcaktminute': utcaktminute.toString(),
+          'utcaktsekunde': utcaktsekunde.toString(),
+          'notificationEnable': notificationEnable.toString(),
+          'newNotification': newNotification.toString(),
+        };
+        final ok = await esp.EspApi.sendParameters(base, fields);
+        if (!ok) debugPrint('sendParametersToESP: POST failed');
+      } catch (e) {
+        debugPrint('sendParametersToESP error: $e');
+      }
+    }();
   }
 
   @override
@@ -694,7 +880,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
     // dispose text controllers
     _ssidController.dispose();
     _passwordController.dispose();
-    _inactivityTimer?.cancel();
+    // _inactivityTimer?.cancel();
     super.dispose();
   }
 
@@ -995,7 +1181,8 @@ class _HomeScaffoldState extends State<HomeScaffold>
       ),
       body: SafeArea(
         child: Listener(
-          onPointerDown: _resetInactivityTimer,
+          // DEAKTIVIERT: Inactivity-Timer
+          // onPointerDown: _resetInactivityTimer,
           behavior: HitTestBehavior.translucent,
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -1514,29 +1701,149 @@ class _HomeScaffoldState extends State<HomeScaffold>
       password: password,
       ssidController: _ssidController,
       passwordController: _passwordController,
-      onConnect:
-          (newSsid, newPassword) => setState(() {
-            // Immediately accept the connection: update canonical fields,
-            // update controllers so the inputs reflect the connected values,
-            // and show the connected state in the UI.
-            ssid = newSsid;
-            password = newPassword;
-            _ssidController.text = newSsid;
-            _passwordController.text = newPassword;
+      onConnect: (newSsid, newPassword) async {
+        // Send credentials to ESP and show a blocking dialog while
+        // searching for the ESP (which may have switched to STA mode).
+        setState(() {
+          ssid = newSsid;
+          password = newPassword;
+          _ssidController.text = newSsid;
+          _passwordController.text = newPassword;
+        });
+
+        debugPrint('[Connect] Sending credentials: ssid=$newSsid');
+
+        // Send parameters immediately from local state (no GET before send)
+        try {
+          final base = await esp.EspApi.findBase();
+          if (base != null) {
+            // Build complete parameter map with correct API field names
+            final fields = <String, String>{
+              // Connection
+              'LoginSaved': '1',
+              'ssid': newSsid,
+              'password': newPassword,
+              'powerOn': powerOn.toString(),
+              'isConnected': isConnected.toString(),
+              // Visualisation
+              'brightness': brightness.toString(),
+              'RGBValueRed': selectedColorRed.toString(),
+              'RGBValueGreen': selectedColorGreen.toString(),
+              'RGBValueBlue': selectedColorBlue.toString(),
+              // Automation
+              'EnableNightMode': enableNightMode.toString(),
+              'displayOnStunden': displayOnStunden.toString(),
+              'displayOnMinuten': displayOnMinuten.toString(),
+              'displayOffStunden': displayOffStunden.toString(),
+              'displayOffMinuten': displayOffMinuten.toString(),
+              // Alarm
+              'alarmEnable': alarmEnable.toString(),
+              'alarmTimeStunden': alarmTimeStunden.toString(),
+              'alarmTimeMinuten': alarmTimeMinuten.toString(),
+              // Timer
+              'timerEnable': timerEnable.toString(),
+              'timerAusloesungStunden': timerAusloesungStunden.toString(),
+              'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
+              'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
+              'timerDurationStunden': timerDurationStunden.toString(),
+              'timerDurationMinuten': timerDurationMinuten.toString(),
+              'timerDurationSekunden': timerDurationSekunden.toString(),
+              // Offline mode
+              'offlineMode': offlineMode.toString(),
+              'utcaktstunde': utcaktstunde.toString(),
+              'utcaktminute': utcaktminute.toString(),
+              'utcaktsekunde': utcaktsekunde.toString(),
+              // Notifications
+              'notificationEnable': notificationEnable.toString(),
+            };
+
+            final ok = await esp.EspApi.sendParameters(base, fields);
+            debugPrint(
+              '[Connect] Parameters sent (ok=$ok); ESP may switch network...',
+            );
+          }
+        } catch (e) {
+          debugPrint('[Connect] Failed to send credentials: $e');
+        }
+
+        // Show blocking "Searching..." dialog
+        if (!mounted) return;
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (ctx) => WillPopScope(
+                onWillPop: () async => false,
+                child: AlertDialog(
+                  title: const Text('Verbinde mit ESP...'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text(
+                        'Suche WordClock im Netzwerk. Dies kann bis zu 60 Sekunden dauern.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+        );
+
+        // Search for ESP with extended timeout (it needs to reboot + connect)
+        Uri? foundBase;
+        try {
+          foundBase = await esp.EspApi.waitForBase(
+            overallTimeout: const Duration(seconds: 60),
+          );
+        } catch (e) {
+          debugPrint('[Connect] Discovery failed: $e');
+        }
+
+        // Close searching dialog
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true).pop();
+
+        // Show result dialog
+        if (foundBase != null) {
+          debugPrint('[Connect] ESP found at $foundBase');
+          setState(() {
             loginsaved = 1;
-            // Treat an explicit Connect as a confirmed change for SSID/password
-            // so the UI shouldn't show the "Übernehmen" (unsaved changes)
-            // state. Update the baseline snapshot for these fields.
+            isConnected = 1;
             _baseSsid = ssid;
             _basePassword = password;
-            // Recompute newChanges (should be false after snapshot)
             newChanges = _computeNewChanges();
-            // Print debug info immediately on connect
-            debugPrint('Connect pressed -> ssid=$ssid');
-            debugPrint('Connect pressed -> password=$password');
-            // Send full parameter debug to ESP/log
-            sendParametersToESP();
-          }),
+          });
+
+          // Fetch fresh parameters
+          try {
+            await _syncFromEspOnce();
+          } catch (e) {
+            debugPrint('[Connect] Failed to sync after connect: $e');
+          }
+        } else {
+          debugPrint('[Connect] ESP not found after 60s');
+          // Failure dialog
+          showDialog<void>(
+            context: context,
+            builder:
+                (ctx) => AlertDialog(
+                  title: const Text('Verbindung fehlgeschlagen'),
+                  content: const Text(
+                    'Die WordClock konnte im Netzwerk nicht gefunden werden. '
+                    'Bitte überprüfen Sie die Zugangsdaten und versuchen Sie es erneut.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+          );
+        }
+      },
       onDisconnect:
           () => setState(() {
             // Clear canonical fields and controllers on disconnect
