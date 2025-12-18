@@ -1357,40 +1357,69 @@ class _HomeScaffoldState extends State<HomeScaffold>
                       horizontal:
                           cardWidth == null ? columnHorizontalPadding : 0,
                     ),
-                    child: AbsorbPointer(
-                      absorbing: _cardsDisabled,
-                      child: Opacity(
-                        opacity: _cardsDisabled ? 0.45 : 1.0,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (!wide)
-                              LayoutBuilder(
-                                builder: (ctx, c) {
-                                  final double side = c.maxWidth.clamp(
-                                    imageMinSide,
-                                    imageMaxSide,
-                                  );
-                                  return imageBox(side);
-                                },
-                              ),
-                            if (!wide) const SizedBox(height: 12),
-                            const SizedBox(height: 8),
-                            // Beim Vorhandensein von cardWidth: Cards zentrieren und auf diese Breite beschränken
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: card_connections(),
-                                ),
-                              ),
-                            if (cardWidth == null) card_connections(),
-                            const SizedBox(height: 12),
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: visual.VisualisationCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Bild immer voll sichtbar, unabhängig von powerOn/Opacity
+                        if (!wide)
+                          LayoutBuilder(
+                            builder: (ctx, c) {
+                              final double side = c.maxWidth.clamp(
+                                imageMinSide,
+                                imageMaxSide,
+                              );
+                              return imageBox(side);
+                            },
+                          ),
+                        if (!wide) const SizedBox(height: 12),
+                        const SizedBox(height: 8),
+                        // Ab hier Karten ggf. deaktiviert/transparent
+                        AbsorbPointer(
+                          absorbing: _cardsDisabled,
+                          child: Opacity(
+                            opacity: _cardsDisabled ? 0.45 : 1.0,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Beim Vorhandensein von cardWidth: Cards zentrieren und auf diese Breite beschränken
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: card_connections(),
+                                    ),
+                                  ),
+                                if (cardWidth == null) card_connections(),
+                                const SizedBox(height: 12),
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: visual.VisualisationCard(
+                                        brightness: brightness,
+                                        brightnessNotifier: brightnessNotifier,
+                                        onBrightnessChanged:
+                                            (b) => setState(() {
+                                              brightness = b;
+                                            }),
+                                        colorNotifier: colorNotifier,
+                                        color: Color.fromARGB(
+                                          255,
+                                          selectedColorRed,
+                                          selectedColorGreen,
+                                          selectedColorBlue,
+                                        ),
+                                        onColorChanged:
+                                            (c) => setState(() {
+                                              selectedColorRed = c.red;
+                                              selectedColorGreen = c.green;
+                                              selectedColorBlue = c.blue;
+                                            }),
+                                      ),
+                                    ),
+                                  ),
+                                if (cardWidth == null)
+                                  visual.VisualisationCard(
                                     brightness: brightness,
                                     brightnessNotifier: brightnessNotifier,
                                     onBrightnessChanged:
@@ -1411,36 +1440,53 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                           selectedColorBlue = c.blue;
                                         }),
                                   ),
-                                ),
-                              ),
-                            if (cardWidth == null)
-                              visual.VisualisationCard(
-                                brightness: brightness,
-                                brightnessNotifier: brightnessNotifier,
-                                onBrightnessChanged:
-                                    (b) => setState(() {
-                                      brightness = b;
-                                    }),
-                                colorNotifier: colorNotifier,
-                                color: Color.fromARGB(
-                                  255,
-                                  selectedColorRed,
-                                  selectedColorGreen,
-                                  selectedColorBlue,
-                                ),
-                                onColorChanged:
-                                    (c) => setState(() {
-                                      selectedColorRed = c.red;
-                                      selectedColorGreen = c.green;
-                                      selectedColorBlue = c.blue;
-                                    }),
-                              ),
-                            const SizedBox(height: 12),
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: _safeCard(
+                                const SizedBox(height: 12),
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: _safeCard(
+                                        () => automation.AutomationCard(
+                                          enableNightMode: enableNightMode,
+                                          onHour: displayOnStunden,
+                                          onMinute: displayOnMinuten,
+                                          offHour: displayOffStunden,
+                                          offMinute: displayOffMinuten,
+                                          onEnableChanged: (v) {
+                                            setState(() {
+                                              enableNightMode = v;
+                                            });
+                                            _updateNewChanges();
+                                            // user toggled automation -> send parameters
+                                            sendParametersToESP();
+                                          },
+                                          onOnTimeChanged: (totalMinutes) {
+                                            setState(() {
+                                              displayOnStunden =
+                                                  totalMinutes ~/ 60;
+                                              displayOnMinuten =
+                                                  totalMinutes % 60;
+                                            });
+                                            _updateNewChanges();
+                                            sendParametersToESP();
+                                          },
+                                          onOffTimeChanged: (totalMinutes) {
+                                            setState(() {
+                                              displayOffStunden =
+                                                  totalMinutes ~/ 60;
+                                              displayOffMinuten =
+                                                  totalMinutes % 60;
+                                            });
+                                            _updateNewChanges();
+                                            sendParametersToESP();
+                                          },
+                                        ),
+                                        label: 'Automation',
+                                      ),
+                                    ),
+                                  ),
+                                if (cardWidth == null)
+                                  _safeCard(
                                     () => automation.AutomationCard(
                                       enableNightMode: enableNightMode,
                                       onHour: displayOnStunden,
@@ -1452,8 +1498,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                           enableNightMode = v;
                                         });
                                         _updateNewChanges();
-                                        // user toggled automation -> send parameters
-                                        sendParametersToESP();
                                       },
                                       onOnTimeChanged: (totalMinutes) {
                                         setState(() {
@@ -1461,7 +1505,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                           displayOnMinuten = totalMinutes % 60;
                                         });
                                         _updateNewChanges();
-                                        sendParametersToESP();
                                       },
                                       onOffTimeChanged: (totalMinutes) {
                                         setState(() {
@@ -1470,68 +1513,63 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                           displayOffMinuten = totalMinutes % 60;
                                         });
                                         _updateNewChanges();
-                                        sendParametersToESP();
                                       },
                                     ),
                                     label: 'Automation',
                                   ),
-                                ),
-                              ),
-                            if (cardWidth == null)
-                              _safeCard(
-                                () => automation.AutomationCard(
-                                  enableNightMode: enableNightMode,
-                                  onHour: displayOnStunden,
-                                  onMinute: displayOnMinuten,
-                                  offHour: displayOffStunden,
-                                  offMinute: displayOffMinuten,
-                                  onEnableChanged: (v) {
-                                    setState(() {
-                                      enableNightMode = v;
-                                    });
-                                    _updateNewChanges();
-                                  },
-                                  onOnTimeChanged: (totalMinutes) {
-                                    setState(() {
-                                      displayOnStunden = totalMinutes ~/ 60;
-                                      displayOnMinuten = totalMinutes % 60;
-                                    });
-                                    _updateNewChanges();
-                                  },
-                                  onOffTimeChanged: (totalMinutes) {
-                                    setState(() {
-                                      displayOffStunden = totalMinutes ~/ 60;
-                                      displayOffMinuten = totalMinutes % 60;
-                                    });
-                                    _updateNewChanges();
-                                  },
-                                ),
-                                label: 'Automation',
-                              ),
-                            const SizedBox(height: 12),
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: card_alarm(),
-                                ),
-                              ),
-                            if (cardWidth == null) card_alarm(),
-                            const SizedBox(height: 12),
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: card_timer(),
-                                ),
-                              ),
-                            if (cardWidth == null) card_timer(),
-                            const SizedBox(height: 12),
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: offline.OfflineModeCard(
+                                const SizedBox(height: 12),
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: card_alarm(),
+                                    ),
+                                  ),
+                                if (cardWidth == null) card_alarm(),
+                                const SizedBox(height: 12),
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: card_timer(),
+                                    ),
+                                  ),
+                                if (cardWidth == null) card_timer(),
+                                const SizedBox(height: 12),
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: offline.OfflineModeCard(
+                                        offlineMode: offlineMode,
+                                        utcSecond: utcaktsekunde,
+                                        utcMinute: utcaktminute,
+                                        utcHour: utcaktstunde,
+                                        onOfflineModeChanged:
+                                            (v) => setState(() {
+                                              offlineMode = v;
+                                              debugPrint(
+                                                'offlineMode=$offlineMode',
+                                              );
+                                              _updateNewChanges();
+                                              // offline mode changed by user -> publish params
+                                              sendParametersToESP();
+                                            }),
+                                        onSetUtcTime:
+                                            (h, m, s) => setState(() {
+                                              utcaktstunde = h;
+                                              utcaktminute = m;
+                                              utcaktsekunde = s;
+                                              debugPrint(
+                                                'offline time set: $h:$m:$s',
+                                              );
+                                              sendParametersToESP();
+                                            }),
+                                      ),
+                                    ),
+                                  ),
+                                if (cardWidth == null)
+                                  offline.OfflineModeCard(
                                     offlineMode: offlineMode,
                                     utcSecond: utcaktsekunde,
                                     utcMinute: utcaktminute,
@@ -1543,8 +1581,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                             'offlineMode=$offlineMode',
                                           );
                                           _updateNewChanges();
-                                          // offline mode changed by user -> publish params
-                                          sendParametersToESP();
                                         }),
                                     onSetUtcTime:
                                         (h, m, s) => setState(() {
@@ -1557,35 +1593,28 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                           sendParametersToESP();
                                         }),
                                   ),
-                                ),
-                              ),
-                            if (cardWidth == null)
-                              offline.OfflineModeCard(
-                                offlineMode: offlineMode,
-                                utcSecond: utcaktsekunde,
-                                utcMinute: utcaktminute,
-                                utcHour: utcaktstunde,
-                                onOfflineModeChanged:
-                                    (v) => setState(() {
-                                      offlineMode = v;
-                                      debugPrint('offlineMode=$offlineMode');
-                                      _updateNewChanges();
-                                    }),
-                                onSetUtcTime:
-                                    (h, m, s) => setState(() {
-                                      utcaktstunde = h;
-                                      utcaktminute = m;
-                                      utcaktsekunde = s;
-                                      debugPrint('offline time set: $h:$m:$s');
-                                      sendParametersToESP();
-                                    }),
-                              ),
-                            const SizedBox(height: 12),
-                            if (cardWidth != null)
-                              Center(
-                                child: SizedBox(
-                                  width: cardWidth,
-                                  child: notif.NotificationCard(
+                                const SizedBox(height: 12),
+                                if (cardWidth != null)
+                                  Center(
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: notif.NotificationCard(
+                                        notificationEnable: notificationEnable,
+                                        onNotificationChanged:
+                                            (v) => setState(() {
+                                              notificationEnable = v;
+                                              debugPrint(
+                                                'Notification changed -> notificationEnable=$notificationEnable',
+                                              );
+                                              newChanges = _computeNewChanges();
+                                              // user toggled notification -> publish params
+                                              sendParametersToESP();
+                                            }),
+                                      ),
+                                    ),
+                                  ),
+                                if (cardWidth == null)
+                                  notif.NotificationCard(
                                     notificationEnable: notificationEnable,
                                     onNotificationChanged:
                                         (v) => setState(() {
@@ -1594,29 +1623,15 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                             'Notification changed -> notificationEnable=$notificationEnable',
                                           );
                                           newChanges = _computeNewChanges();
-                                          // user toggled notification -> publish params
                                           sendParametersToESP();
                                         }),
                                   ),
-                                ),
-                              ),
-                            if (cardWidth == null)
-                              notif.NotificationCard(
-                                notificationEnable: notificationEnable,
-                                onNotificationChanged:
-                                    (v) => setState(() {
-                                      notificationEnable = v;
-                                      debugPrint(
-                                        'Notification changed -> notificationEnable=$notificationEnable',
-                                      );
-                                      newChanges = _computeNewChanges();
-                                      sendParametersToESP();
-                                    }),
-                              ),
-                            const SizedBox(height: 12),
-                          ],
+                                const SizedBox(height: 12),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 );
@@ -1821,6 +1836,14 @@ class _HomeScaffoldState extends State<HomeScaffold>
             await _syncFromEspOnce();
           } catch (e) {
             debugPrint('[Connect] Failed to sync after connect: $e');
+          }
+
+          // Show success status popup
+          if (mounted) {
+            Future.delayed(const Duration(milliseconds: 200), () {
+              if (!mounted) return;
+              _showConnectionStatusDialog();
+            });
           }
         } else {
           debugPrint('[Connect] ESP not found after 60s');
