@@ -193,6 +193,8 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // canonical `powerOn` parameter. This overlay flag controls that visual
   // state and is cleared as soon as the user interacts again or reconnects.
   bool _inactivityUiOverlay = false;
+  // Prevent concurrent sends and track the in-flight dialog state.
+  bool _sendingToEsp = false;
   // Globale Parameter
   int powerOn = 1; //Parameter zum Ein/Ausschalten der UhrUhr ein/aus
   bool newChanges =
@@ -300,10 +302,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
     if (notificationsArmed) {
       if (hasNotification && newNotification != 1) {
         setState(() => newNotification = 1);
-        sendParametersToESP();
+        sendParametersToESP(showFeedback: false);
       } else if (!hasNotification && newNotification != 0) {
         setState(() => newNotification = 0);
-        sendParametersToESP();
+        sendParametersToESP(showFeedback: false);
       }
       return;
     }
@@ -826,69 +828,184 @@ class _HomeScaffoldState extends State<HomeScaffold>
     selectedColorBlue = c.blue.clamp(0, 255).toInt();
   }
 
-  // Centralized debug helper that prints all canonical parameters to the
-  // console and shows them in a temporary overlay popup for 10 seconds.
-  void sendParametersToESP() {
-    () async {
+  // Centralized sender: shows a loading dialog while waiting for the ESP to
+  // confirm receipt (HTTP 200/204). Gives up after 20 seconds and shows an
+  // error dialog.
+  void sendParametersToESP({bool showFeedback = true}) {
+    if (_sendingToEsp) return; // drop concurrent requests
+    _sendingToEsp = true;
+    unawaited(_sendParametersToEspWithUi(showFeedback: showFeedback));
+  }
+
+  Future<void> _sendParametersToEspWithUi({required bool showFeedback}) async {
+    bool dialogOpen = false;
+    bool requestComplete = false;
+
+    try {
+      // Start the ESP request immediately
+      final requestFuture = _pushParametersToEspOnce().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => false,
+      );
+
+      // Show dialog only if request takes longer than 0.5 seconds
+      if (showFeedback && mounted) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (!requestComplete && mounted) {
+            try {
+              showDialog<void>(
+                context: context,
+                barrierDismissible: false,
+                builder:
+                    (ctx) => WillPopScope(
+                      onWillPop: () async => false,
+                      child: const AlertDialog(
+                        title: Text('Lade...'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text(
+                              'Sende Daten zur WordClock...',
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+              );
+              dialogOpen = true;
+            } catch (e) {
+              debugPrint('sendParametersToESP dialog failed: $e');
+            }
+          }
+        });
+      }
+
+      // Wait for ESP response
+      bool success = false;
       try {
-        final base = await esp.EspApi.findBase();
-        if (base == null) {
-          debugPrint('sendParametersToESP: ESP not found');
-          return;
-        }
-        // If we can reach the ESP, treat it as connected locally.
-        initialIsConnected = 1;
-        isConnected = 1;
-        // Capture the current timestamp immediately before sending
-        final now = DateTime.now().millisecondsSinceEpoch;
-        // Pending, unbestätigte Notification-Änderungen sollen nicht
-        // unabsichtlich mitgeschickt werden (nur via Apply). Deshalb
-        // wird während offener Änderungen der bestätigte Baseline-Wert
-        // verwendet.
-        final int effectiveNotificationEnable =
-            (notificationEnable != _baseNotificationEnable && newChanges)
-                ? _baseNotificationEnable
-                : notificationEnable;
-        final Map<String, String> fields = {
-          'powerOn': powerOn.toString(),
-          'isConnected': isConnected.toString(),
-          'loginSaved': loginsaved.toString(),
-          'ssid': ssid,
-          'password': password,
-          'brightness': brightness.toString(),
-          // map UI color into ESP RGB fields
-          'RGBValueRed': selectedColorRed.toString(),
-          'RGBValueGreen': selectedColorGreen.toString(),
-          'RGBValueBlue': selectedColorBlue.toString(),
-          'EnableNightMode': enableNightMode.toString(),
-          'displayOnStunden': displayOnStunden.toString(),
-          'displayOnMinuten': displayOnMinuten.toString(),
-          'displayOffStunden': displayOffStunden.toString(),
-          'displayOffMinuten': displayOffMinuten.toString(),
-          'alarmEnable': alarmEnable.toString(),
-          'alarmTimeStunden': alarmTimeStunden.toString(),
-          'alarmTimeMinuten': alarmTimeMinuten.toString(),
-          'timerEnable': timerEnable.toString(),
-          'timerDurationStunden': timerDurationStunden.toString(),
-          'timerDurationMinuten': timerDurationMinuten.toString(),
-          'timerDurationSekunden': timerDurationSekunden.toString(),
-          'timerAusloesungStunden': timerAusloesungStunden.toString(),
-          'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
-          'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
-          'offlineMode': offlineMode.toString(),
-          'aktstunde': aktstunde.toString(),
-          'aktminute': aktminute.toString(),
-          'aktsekunde': aktsekunde.toString(),
-          'sendTimeMillis': now.toString(),
-          'notificationEnable': effectiveNotificationEnable.toString(),
-          'newNotification': newNotification.toString(),
-        };
-        final ok = await esp.EspApi.sendParameters(base, fields);
-        if (!ok) debugPrint('sendParametersToESP: POST failed');
+        success = await requestFuture;
       } catch (e) {
         debugPrint('sendParametersToESP error: $e');
+        success = false;
+      } finally {
+        requestComplete = true;
       }
-    }();
+
+      // Close loading dialog if it was opened
+      if (dialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogOpen = false;
+        // Small delay to let the dialog close before showing error
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+
+      // Show error dialog if failed
+      if (!success && showFeedback && mounted) {
+        showDialog<void>(
+          context: context,
+          builder:
+              (ctx) => AlertDialog(
+                title: const Text('Fehler'),
+                content: const Text(
+                  'Die Daten konnten nicht übermittelt werden.\n\n'
+                  'Die WordClock hat den Empfang nicht bestätigt. Bitte '
+                  'Verbindung prüfen und erneut versuchen.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+        );
+      }
+    } finally {
+      // Ensure dialog is closed and flag is reset
+      if (dialogOpen && mounted) {
+        try {
+          Navigator.of(context, rootNavigator: true).pop();
+        } catch (e) {
+          debugPrint('Error closing dialog: $e');
+        }
+      }
+      _sendingToEsp = false;
+    }
+  }
+
+  Future<bool> _pushParametersToEspOnce() async {
+    try {
+      // Limit discovery per call so the overall wait stays within 20 seconds.
+      final base = await esp.EspApi.findBase(
+        discoveryTimeout: const Duration(seconds: 3),
+      ).timeout(const Duration(seconds: 10), onTimeout: () => null);
+
+      if (base == null) {
+        debugPrint('sendParametersToESP: ESP not found');
+        return false;
+      }
+
+      // If we can reach the ESP, treat it as connected locally.
+      initialIsConnected = 1;
+      isConnected = 1;
+
+      // Capture the current timestamp immediately before sending
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      // Pending, unbestätigte Notification-Änderungen sollen nicht
+      // unabsichtlich mitgeschickt werden (nur via Apply). Deshalb
+      // wird während offener Änderungen der bestätigte Baseline-Wert
+      // verwendet.
+      final int effectiveNotificationEnable =
+          (notificationEnable != _baseNotificationEnable && newChanges)
+              ? _baseNotificationEnable
+              : notificationEnable;
+
+      final Map<String, String> fields = {
+        'powerOn': powerOn.toString(),
+        'isConnected': isConnected.toString(),
+        'loginSaved': loginsaved.toString(),
+        'ssid': ssid,
+        'password': password,
+        'brightness': brightness.toString(),
+        // map UI color into ESP RGB fields
+        'RGBValueRed': selectedColorRed.toString(),
+        'RGBValueGreen': selectedColorGreen.toString(),
+        'RGBValueBlue': selectedColorBlue.toString(),
+        'EnableNightMode': enableNightMode.toString(),
+        'displayOnStunden': displayOnStunden.toString(),
+        'displayOnMinuten': displayOnMinuten.toString(),
+        'displayOffStunden': displayOffStunden.toString(),
+        'displayOffMinuten': displayOffMinuten.toString(),
+        'alarmEnable': alarmEnable.toString(),
+        'alarmTimeStunden': alarmTimeStunden.toString(),
+        'alarmTimeMinuten': alarmTimeMinuten.toString(),
+        'timerEnable': timerEnable.toString(),
+        'timerDurationStunden': timerDurationStunden.toString(),
+        'timerDurationMinuten': timerDurationMinuten.toString(),
+        'timerDurationSekunden': timerDurationSekunden.toString(),
+        'timerAusloesungStunden': timerAusloesungStunden.toString(),
+        'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
+        'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
+        'offlineMode': offlineMode.toString(),
+        'aktstunde': aktstunde.toString(),
+        'aktminute': aktminute.toString(),
+        'aktsekunde': aktsekunde.toString(),
+        'sendTimeMillis': now.toString(),
+        'notificationEnable': effectiveNotificationEnable.toString(),
+        'newNotification': newNotification.toString(),
+      };
+
+      final ok = await esp.EspApi.sendParameters(base, fields);
+      if (!ok) debugPrint('sendParametersToESP: POST failed');
+      return ok;
+    } catch (e) {
+      debugPrint('sendParametersToESP error: $e');
+      return false;
+    }
   }
 
   @override
