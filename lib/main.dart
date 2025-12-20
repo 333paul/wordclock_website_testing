@@ -25,7 +25,7 @@ Future<void> getParametersFromESP() async {
   try {
     debugPrint('[Startup] Searching for ESP with extended timeout...');
     final base = await esp.EspApi.waitForBase(
-      overallTimeout: const Duration(seconds: 45),
+      overallTimeout: const Duration(seconds: 10),
     );
     if (base == null) {
       initialIsConnected = 0;
@@ -63,11 +63,11 @@ class MainApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
       // Show splash screen with extended discovery timeout. The splash waits
-      // for getParametersFromESP() which uses waitForBase() with 45s timeout,
+      // for getParametersFromESP() which uses waitForBase() with 10s timeout,
       // ensuring connection state is known before showing the main UI.
       home: SplashScreen(
         next: const HomeScaffold(),
-        duration: const Duration(seconds: 50),
+        duration: const Duration(seconds: 10),
         initFuture: getParametersFromESP(),
       ),
     );
@@ -255,12 +255,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // Offline-Modus Parameter
   int offlineMode =
       0; //Offline Modus aktivieren/deaktiveren (in ESP-Code: if-Abfrage)
-  int utcaktsekunde =
-      0; //aktuelle Sekunde UTC (in ESP-Code wahrscheinlich einfach überschreiben)
-  int utcaktminute =
-      0; //aktuelle Minute UTC (in ESP-Code wahrscheinlich einfach überschreiben)
-  int utcaktstunde =
-      0; //aktuelle Stunde UTC (in ESP-Code wahrscheinlich einfach überschreiben)
+  int aktsekunde = 0; //aktuelle Sekunde (vormals utcaktsekunde)
+  int aktminute = 0; //aktuelle Minute (vormals utcaktminute)
+  int aktstunde = 0; //aktuelle Stunde (vormals utcaktstunde)
 
   // Benachrichtigungs-Parameter
   int notificationEnable =
@@ -285,36 +282,36 @@ class _HomeScaffoldState extends State<HomeScaffold>
   late int _baseAlarmTimeStunden;
   late int _baseAlarmTimeMinuten;
   late int _baseOfflineMode;
-  late int _baseUtcaktsekunde;
-  late int _baseUtcaktminute;
-  late int _baseUtcaktstunde;
+  late int _baseAktsekunde;
+  late int _baseAktminute;
+  late int _baseAktstunde;
   late int _baseNotificationEnable;
 
   // Handler für NotificationListenerService-Status
   Future<void> _handleNotificationStatusChanged(MethodCall call) async {
-    if (call.method == 'onNotificationStatusChanged') {
-      final bool hasNotification = call.arguments == true;
-      if (notificationEnable == 1) {
-        if (hasNotification && newNotification != 1) {
-          setState(() {
-            newNotification = 1;
-          });
-          sendParametersToESP();
-        } else if (!hasNotification && newNotification != 0) {
-          setState(() {
-            newNotification = 0;
-          });
-          sendParametersToESP();
-        }
-      } else {
-        // Wenn Notification-Feature deaktiviert, immer auf 0
-        if (newNotification != 0) {
-          setState(() {
-            newNotification = 0;
-          });
-          sendParametersToESP();
-        }
+    if (call.method != 'onNotificationStatusChanged') return;
+    final bool hasNotification = call.arguments == true;
+
+    // Nur dann direkt an den ESP senden, wenn Notifications bereits
+    // bestätigt aktiv sind (d.h. per Übernehmen an den ESP gesendet).
+    final bool notificationsArmed =
+        notificationEnable == 1 && _baseNotificationEnable == 1;
+
+    if (notificationsArmed) {
+      if (hasNotification && newNotification != 1) {
+        setState(() => newNotification = 1);
+        sendParametersToESP();
+      } else if (!hasNotification && newNotification != 0) {
+        setState(() => newNotification = 0);
+        sendParametersToESP();
       }
+      return;
+    }
+
+    // Falls Notifications nicht (bestätigt) aktiv sind: nur lokal zurücksetzen,
+    // nichts senden.
+    if (newNotification != 0) {
+      setState(() => newNotification = 0);
     }
   }
 
@@ -376,9 +373,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
     _baseAlarmTimeStunden = alarmTimeStunden;
     _baseAlarmTimeMinuten = alarmTimeMinuten;
     _baseOfflineMode = offlineMode;
-    _baseUtcaktsekunde = utcaktsekunde;
-    _baseUtcaktminute = utcaktminute;
-    _baseUtcaktstunde = utcaktstunde;
+    _baseAktsekunde = aktsekunde;
+    _baseAktminute = aktminute;
+    _baseAktstunde = aktstunde;
     _baseNotificationEnable = notificationEnable;
 
     // Apply any startup connection state collected during the splash.
@@ -553,9 +550,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
           timerAusloesungSekunden,
         );
         offlineMode = _intFrom(data['offlineMode'], offlineMode);
-        utcaktstunde = _intFrom(data['utcaktstunde'], utcaktstunde);
-        utcaktminute = _intFrom(data['utcaktminute'], utcaktminute);
-        utcaktsekunde = _intFrom(data['utcaktsekunde'], utcaktsekunde);
+        aktstunde = _intFrom(data['aktstunde'], aktstunde);
+        aktminute = _intFrom(data['aktminute'], aktminute);
+        aktsekunde = _intFrom(data['aktsekunde'], aktsekunde);
         notificationEnable = _intFrom(
           data['notificationEnable'],
           notificationEnable,
@@ -680,7 +677,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
                 if (!connected)
                   TextButton(
                     onPressed: () async {
-                      // Don't close dialog, show searching indicator instead
+                      // Close current status dialog
                       Navigator.of(ctx).pop();
 
                       // Show searching dialog
@@ -690,15 +687,15 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         builder:
                             (searchCtx) => WillPopScope(
                               onWillPop: () async => false,
-                              child: AlertDialog(
-                                title: const Text('Suche WordClock...'),
+                              child: const AlertDialog(
+                                title: Text('Suche WordClock...'),
                                 content: Column(
                                   mainAxisSize: MainAxisSize.min,
-                                  children: const [
+                                  children: [
                                     CircularProgressIndicator(),
                                     SizedBox(height: 16),
                                     Text(
-                                      'Suche nach der WordClock im Netzwerk...',
+                                      'Suche nach der WordClock im Netzwerk (max. 20 Sekunden)...',
                                       textAlign: TextAlign.center,
                                     ),
                                   ],
@@ -707,20 +704,35 @@ class _HomeScaffoldState extends State<HomeScaffold>
                             ),
                       );
 
-                      // Try to reconnect with extended timeout
+                      // Perform a 20s discovery attempt
+                      Uri? found;
                       try {
-                        await getParametersFromESP();
-                        await _syncFromEspOnce();
-                      } catch (_) {}
+                        found = await esp.EspApi.waitForBase(
+                          overallTimeout: const Duration(seconds: 20),
+                        );
+                        if (found != null) {
+                          initialIsConnected = 1;
+                          if (mounted) setState(() => isConnected = 1);
+                          try {
+                            await _syncFromEspOnce();
+                          } catch (_) {}
+                        } else {
+                          initialIsConnected = 0;
+                          if (mounted) setState(() => isConnected = 0);
+                        }
+                      } catch (_) {
+                        initialIsConnected = 0;
+                        if (mounted) setState(() => isConnected = 0);
+                      }
 
                       // Close searching dialog
                       if (mounted) {
                         Navigator.of(context, rootNavigator: true).pop();
                       }
 
-                      // Show result again
+                      // Show status again
                       if (mounted) {
-                        Future.delayed(const Duration(milliseconds: 300), () {
+                        Future.delayed(const Duration(milliseconds: 200), () {
                           if (!mounted) return;
                           _showConnectionStatusDialog();
                         });
@@ -827,6 +839,16 @@ class _HomeScaffoldState extends State<HomeScaffold>
         // If we can reach the ESP, treat it as connected locally.
         initialIsConnected = 1;
         isConnected = 1;
+        // Capture the current timestamp immediately before sending
+        final now = DateTime.now().millisecondsSinceEpoch;
+        // Pending, unbestätigte Notification-Änderungen sollen nicht
+        // unabsichtlich mitgeschickt werden (nur via Apply). Deshalb
+        // wird während offener Änderungen der bestätigte Baseline-Wert
+        // verwendet.
+        final int effectiveNotificationEnable =
+            (notificationEnable != _baseNotificationEnable && newChanges)
+                ? _baseNotificationEnable
+                : notificationEnable;
         final Map<String, String> fields = {
           'powerOn': powerOn.toString(),
           'isConnected': isConnected.toString(),
@@ -854,10 +876,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
           'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
           'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
           'offlineMode': offlineMode.toString(),
-          'utcaktstunde': utcaktstunde.toString(),
-          'utcaktminute': utcaktminute.toString(),
-          'utcaktsekunde': utcaktsekunde.toString(),
-          'notificationEnable': notificationEnable.toString(),
+          'aktstunde': aktstunde.toString(),
+          'aktminute': aktminute.toString(),
+          'aktsekunde': aktsekunde.toString(),
+          'sendTimeMillis': now.toString(),
+          'notificationEnable': effectiveNotificationEnable.toString(),
           'newNotification': newNotification.toString(),
         };
         final ok = await esp.EspApi.sendParameters(base, fields);
@@ -997,9 +1020,25 @@ class _HomeScaffoldState extends State<HomeScaffold>
                             // Read entered SSID/password from the connections card
                             final enteredSsid = _ssidController.text.trim();
                             final enteredPassword = _passwordController.text;
-                            // Update canonical fields so they are reflected below
-                            ssid = enteredSsid;
-                            password = enteredPassword;
+                            // Decide behavior based on inputs and offline mode
+                            if (enteredSsid.isNotEmpty &&
+                                enteredSsid.toLowerCase() != 'esp') {
+                              // New credentials → disable offline mode
+                              offlineMode = 0;
+                              ssid = enteredSsid;
+                              password = enteredPassword;
+                            } else {
+                              // No new credentials or AP SSID; if offline mode is on, clear creds
+                              if (offlineMode == 1) {
+                                ssid = '';
+                                password = '';
+                                _ssidController.clear();
+                                _passwordController.clear();
+                              } else {
+                                ssid = enteredSsid;
+                                password = enteredPassword;
+                              }
+                            }
                             // Print all current settings to the debug console
                             debugPrint('Apply pressed -> current settings:');
                             debugPrint('ssid=$ssid');
@@ -1021,21 +1060,32 @@ class _HomeScaffoldState extends State<HomeScaffold>
                             debugPrint('alarmTimeStunden=$alarmTimeStunden');
                             debugPrint('alarmTimeMinuten=$alarmTimeMinuten');
                             debugPrint('offlineMode=$offlineMode');
-                            debugPrint('utcaktsekunde=$utcaktsekunde');
-                            debugPrint('utcaktminute=$utcaktminute');
-                            debugPrint('utcaktstunde=$utcaktstunde');
+                            debugPrint('aktsekunde=$aktsekunde');
+                            debugPrint('aktminute=$aktminute');
+                            debugPrint('aktstunde=$aktstunde');
                             debugPrint(
                               'notificationEnable=$notificationEnable',
                             );
+                            if (notificationEnable == 0 &&
+                                newNotification != 0) {
+                              newNotification = 0;
+                            }
                             // Update baseline snapshot so these values become the
                             // confirmed defaults; hide the Apply button until they
                             // change again.
                             setState(() {
-                              // Mark the entered SSID/password as confirmed
-                              _baseSsid = ssid;
-                              _basePassword = password;
-                              loginsaved =
-                                  1; // consider connection confirmed now
+                              // If offline mode is enabled, treat like disconnect
+                              if (offlineMode == 1) {
+                                loginsaved = 0;
+                                _baseSsid = '';
+                                _basePassword = '';
+                              } else {
+                                // Mark the entered SSID/password as confirmed
+                                _baseSsid = ssid;
+                                _basePassword = password;
+                                loginsaved =
+                                    1; // consider connection confirmed now
+                              }
                               _baseBrightness = brightness;
                               _baseSelectedColorRed = selectedColorRed;
                               _baseSelectedColorGreen = selectedColorGreen;
@@ -1072,8 +1122,25 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         // Read entered SSID/password from the connections card
                         final enteredSsid = _ssidController.text.trim();
                         final enteredPassword = _passwordController.text;
-                        ssid = enteredSsid;
-                        password = enteredPassword;
+                        // Decide behavior based on inputs and offline mode
+                        if (enteredSsid.isNotEmpty &&
+                            enteredSsid.toLowerCase() != 'esp') {
+                          // New credentials → disable offline mode
+                          offlineMode = 0;
+                          ssid = enteredSsid;
+                          password = enteredPassword;
+                        } else {
+                          // No new credentials or AP SSID; if offline mode is on, clear creds
+                          if (offlineMode == 1) {
+                            ssid = '';
+                            password = '';
+                            _ssidController.clear();
+                            _passwordController.clear();
+                          } else {
+                            ssid = enteredSsid;
+                            password = enteredPassword;
+                          }
+                        }
                         debugPrint('Apply pressed -> current settings:');
                         debugPrint('ssid=$ssid');
                         debugPrint('password=$password');
@@ -1092,15 +1159,25 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         debugPrint('alarmTimeStunden=$alarmTimeStunden');
                         debugPrint('alarmTimeMinuten=$alarmTimeMinuten');
                         debugPrint('offlineMode=$offlineMode');
-                        debugPrint('utcaktsekunde=$utcaktsekunde');
-                        debugPrint('utcaktminute=$utcaktminute');
-                        debugPrint('utcaktstunde=$utcaktstunde');
+                        debugPrint('aktsekunde=$aktsekunde');
+                        debugPrint('aktminute=$aktminute');
+                        debugPrint('aktstunde=$aktstunde');
                         debugPrint('notificationEnable=$notificationEnable');
+                        if (notificationEnable == 0 && newNotification != 0) {
+                          newNotification = 0;
+                        }
                         setState(() {
-                          // Mark the entered SSID/password as confirmed
-                          _baseSsid = ssid;
-                          _basePassword = password;
-                          loginsaved = 1; // consider connection confirmed now
+                          // If offline mode is enabled, treat like disconnect
+                          if (offlineMode == 1) {
+                            loginsaved = 0;
+                            _baseSsid = '';
+                            _basePassword = '';
+                          } else {
+                            // Mark the entered SSID/password as confirmed
+                            _baseSsid = ssid;
+                            _basePassword = password;
+                            loginsaved = 1; // consider connection confirmed now
+                          }
                           _baseBrightness = brightness;
                           _baseSelectedColorRed = selectedColorRed;
                           _baseSelectedColorGreen = selectedColorGreen;
@@ -1147,8 +1224,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         child: labeledButton(
                           Icons.power_settings_new,
                           (powerOn == 1) ? 'Ausschalten' : 'Einschalten',
-                          () =>
-                              setState(() => powerOn = (powerOn == 1) ? 0 : 1),
+                          () {
+                            setState(() => powerOn = (powerOn == 1) ? 0 : 1);
+                            // Send immediately without requiring "Übernehmen"
+                            sendParametersToESP();
+                          },
                           active: powerOn == 1,
                         ),
                       ),
@@ -1160,9 +1240,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
                     width: 50,
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      onPressed:
-                          () =>
-                              setState(() => powerOn = (powerOn == 1) ? 0 : 1),
+                      onPressed: () {
+                        setState(() => powerOn = (powerOn == 1) ? 0 : 1);
+                        // Send immediately without requiring "Übernehmen"
+                        sendParametersToESP();
+                      },
                       icon: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 200),
                         transitionBuilder:
@@ -1457,8 +1539,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                               enableNightMode = v;
                                             });
                                             _updateNewChanges();
-                                            // user toggled automation -> send parameters
-                                            sendParametersToESP();
                                           },
                                           onOnTimeChanged: (totalMinutes) {
                                             setState(() {
@@ -1468,7 +1548,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                                   totalMinutes % 60;
                                             });
                                             _updateNewChanges();
-                                            sendParametersToESP();
                                           },
                                           onOffTimeChanged: (totalMinutes) {
                                             setState(() {
@@ -1478,7 +1557,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                                   totalMinutes % 60;
                                             });
                                             _updateNewChanges();
-                                            sendParametersToESP();
                                           },
                                         ),
                                         label: 'Automation',
@@ -1542,9 +1620,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                       width: cardWidth,
                                       child: offline.OfflineModeCard(
                                         offlineMode: offlineMode,
-                                        utcSecond: utcaktsekunde,
-                                        utcMinute: utcaktminute,
-                                        utcHour: utcaktstunde,
+                                        utcSecond: aktsekunde,
+                                        utcMinute: aktminute,
+                                        utcHour: aktstunde,
                                         onOfflineModeChanged:
                                             (v) => setState(() {
                                               offlineMode = v;
@@ -1552,18 +1630,32 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                                 'offlineMode=$offlineMode',
                                               );
                                               _updateNewChanges();
-                                              // offline mode changed by user -> publish params
-                                              sendParametersToESP();
+                                              // If offline mode is enabled, clear Wi‑Fi credentials
+                                              if (offlineMode == 1) {
+                                                ssid = '';
+                                                password = '';
+                                                _ssidController.clear();
+                                                _passwordController.clear();
+                                                debugPrint(
+                                                  'offlineMode enabled -> cleared ssid/password',
+                                                );
+                                              }
                                             }),
                                         onSetUtcTime:
                                             (h, m, s) => setState(() {
-                                              utcaktstunde = h;
-                                              utcaktminute = m;
-                                              utcaktsekunde = s;
+                                              aktstunde = h;
+                                              aktminute = m;
+                                              aktsekunde = s;
+                                              _baseAktstunde = aktstunde;
+                                              _baseAktminute = aktminute;
+                                              _baseAktsekunde = aktsekunde;
+                                              // Offline-Änderungen gelten als bestätigt, wenn Zeit jetzt gesendet wurde
+                                              _baseOfflineMode = offlineMode;
                                               debugPrint(
                                                 'offline time set: $h:$m:$s',
                                               );
                                               sendParametersToESP();
+                                              newChanges = _computeNewChanges();
                                             }),
                                       ),
                                     ),
@@ -1571,9 +1663,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                 if (cardWidth == null)
                                   offline.OfflineModeCard(
                                     offlineMode: offlineMode,
-                                    utcSecond: utcaktsekunde,
-                                    utcMinute: utcaktminute,
-                                    utcHour: utcaktstunde,
+                                    utcSecond: aktsekunde,
+                                    utcMinute: aktminute,
+                                    utcHour: aktstunde,
                                     onOfflineModeChanged:
                                         (v) => setState(() {
                                           offlineMode = v;
@@ -1581,16 +1673,32 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                             'offlineMode=$offlineMode',
                                           );
                                           _updateNewChanges();
+                                          // If offline mode is enabled, clear Wi‑Fi credentials
+                                          if (offlineMode == 1) {
+                                            ssid = '';
+                                            password = '';
+                                            _ssidController.clear();
+                                            _passwordController.clear();
+                                            debugPrint(
+                                              'offlineMode enabled -> cleared ssid/password',
+                                            );
+                                          }
                                         }),
                                     onSetUtcTime:
                                         (h, m, s) => setState(() {
-                                          utcaktstunde = h;
-                                          utcaktminute = m;
-                                          utcaktsekunde = s;
+                                          aktstunde = h;
+                                          aktminute = m;
+                                          aktsekunde = s;
+                                          _baseAktstunde = aktstunde;
+                                          _baseAktminute = aktminute;
+                                          _baseAktsekunde = aktsekunde;
+                                          // Offline-Änderungen gelten als bestätigt, wenn Zeit jetzt gesendet wurde
+                                          _baseOfflineMode = offlineMode;
                                           debugPrint(
                                             'offline time set: $h:$m:$s',
                                           );
                                           sendParametersToESP();
+                                          newChanges = _computeNewChanges();
                                         }),
                                   ),
                                 const SizedBox(height: 12),
@@ -1603,12 +1711,14 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                         onNotificationChanged:
                                             (v) => setState(() {
                                               notificationEnable = v;
+                                              if (notificationEnable == 0) {
+                                                newNotification = 0;
+                                              }
                                               debugPrint(
                                                 'Notification changed -> notificationEnable=$notificationEnable',
                                               );
+                                              // nur Apply-Flow, kein sofortiges Senden
                                               newChanges = _computeNewChanges();
-                                              // user toggled notification -> publish params
-                                              sendParametersToESP();
                                             }),
                                       ),
                                     ),
@@ -1619,11 +1729,14 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                     onNotificationChanged:
                                         (v) => setState(() {
                                           notificationEnable = v;
+                                          if (notificationEnable == 0) {
+                                            newNotification = 0;
+                                          }
                                           debugPrint(
                                             'Notification changed -> notificationEnable=$notificationEnable',
                                           );
+                                          // nur Apply-Flow, kein sofortiges Senden
                                           newChanges = _computeNewChanges();
-                                          sendParametersToESP();
                                         }),
                                   ),
                                 const SizedBox(height: 12),
@@ -1724,6 +1837,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
           password = newPassword;
           _ssidController.text = newSsid;
           _passwordController.text = newPassword;
+          if (newSsid.isNotEmpty && newSsid.toLowerCase() != 'esp') {
+            offlineMode = 0;
+          }
         });
 
         debugPrint('[Connect] Sending credentials: ssid=$newSsid');
@@ -1733,6 +1849,12 @@ class _HomeScaffoldState extends State<HomeScaffold>
           final base = await esp.EspApi.findBase();
           if (base != null) {
             // Build complete parameter map with correct API field names
+            // Unbestätigte Notification-Änderung nicht mitsenden; nur Baseline
+            final int effectiveNotificationEnable =
+                (notificationEnable != _baseNotificationEnable && newChanges)
+                    ? _baseNotificationEnable
+                    : notificationEnable;
+
             final fields = <String, String>{
               // Connection
               'LoginSaved': '1',
@@ -1765,11 +1887,12 @@ class _HomeScaffoldState extends State<HomeScaffold>
               'timerDurationSekunden': timerDurationSekunden.toString(),
               // Offline mode
               'offlineMode': offlineMode.toString(),
-              'utcaktstunde': utcaktstunde.toString(),
-              'utcaktminute': utcaktminute.toString(),
-              'utcaktsekunde': utcaktsekunde.toString(),
+              'aktstunde': aktstunde.toString(),
+              'aktminute': aktminute.toString(),
+              'aktsekunde': aktsekunde.toString(),
               // Notifications
-              'notificationEnable': notificationEnable.toString(),
+              'notificationEnable': effectiveNotificationEnable.toString(),
+              'newNotification': newNotification.toString(),
             };
 
             final ok = await esp.EspApi.sendParameters(base, fields);
@@ -1781,7 +1904,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
           debugPrint('[Connect] Failed to send credentials: $e');
         }
 
-        // Show blocking "Searching..." dialog
+        // Wait 10 seconds to allow the ESP to connect to the new Wi‑Fi
+        await Future.delayed(const Duration(seconds: 10));
+
+        // Show blocking "Searching..." dialog (20s discovery window)
         if (!mounted) return;
         showDialog<void>(
           context: context,
@@ -1789,15 +1915,15 @@ class _HomeScaffoldState extends State<HomeScaffold>
           builder:
               (ctx) => WillPopScope(
                 onWillPop: () async => false,
-                child: AlertDialog(
-                  title: const Text('Verbinde mit ESP...'),
+                child: const AlertDialog(
+                  title: Text('Suche WordClock...'),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
+                    children: [
                       CircularProgressIndicator(),
                       SizedBox(height: 16),
                       Text(
-                        'Suche WordClock im Netzwerk. Dies kann bis zu 60 Sekunden dauern.',
+                        'Suche nach der WordClock im Netzwerk (max. 20 Sekunden)...',
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -1806,11 +1932,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
               ),
         );
 
-        // Search for ESP with extended timeout (it needs to reboot + connect)
+        // Search for ESP with a 20s window
         Uri? foundBase;
         try {
           foundBase = await esp.EspApi.waitForBase(
-            overallTimeout: const Duration(seconds: 60),
+            overallTimeout: const Duration(seconds: 20),
           );
         } catch (e) {
           debugPrint('[Connect] Discovery failed: $e');
@@ -1846,7 +1972,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
             });
           }
         } else {
-          debugPrint('[Connect] ESP not found after 60s');
+          debugPrint('[Connect] ESP not found after 20s');
           // Failure dialog
           showDialog<void>(
             context: context,
@@ -1867,23 +1993,78 @@ class _HomeScaffoldState extends State<HomeScaffold>
           );
         }
       },
-      onDisconnect:
-          () => setState(() {
-            // Clear canonical fields and controllers on disconnect
-            loginsaved = 0;
-            ssid = '';
-            password = '';
-            _ssidController.clear();
-            _passwordController.clear();
-            // Treat disconnect as a confirmed change (no Apply needed):
-            // update baseline snapshot to match the cleared state so the
-            // "Übernehmen" button does not appear.
-            _baseSsid = '';
-            _basePassword = '';
-            newChanges = _computeNewChanges();
-            debugPrint('Disconnected -> cleared ssid/password');
-            sendParametersToESP();
-          }),
+      onDisconnect: () async {
+        // Clear canonical fields and controllers on disconnect
+        setState(() {
+          loginsaved = 0;
+          ssid = '';
+          password = '';
+          _ssidController.clear();
+          _passwordController.clear();
+          _baseSsid = '';
+          _basePassword = '';
+          newChanges = _computeNewChanges();
+          debugPrint('Disconnected -> cleared ssid/password');
+        });
+
+        // Inform ESP (fire-and-forget)
+        sendParametersToESP();
+
+        // Give the ESP time to switch modes/network
+        await Future.delayed(const Duration(seconds: 10));
+
+        if (!mounted) return;
+        // Show searching dialog (20s)
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (ctx) => WillPopScope(
+                onWillPop: () async => false,
+                child: const AlertDialog(
+                  title: Text('Suche WordClock...'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text(
+                        'Suche nach der WordClock im Netzwerk (max. 20 Sekunden)...',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+        );
+
+        // Attempt discovery (20s)
+        try {
+          final found = await esp.EspApi.waitForBase(
+            overallTimeout: const Duration(seconds: 20),
+          );
+          if (found != null) {
+            initialIsConnected = 1;
+            if (mounted) setState(() => isConnected = 1);
+            try {
+              await _syncFromEspOnce();
+            } catch (_) {}
+          } else {
+            initialIsConnected = 0;
+            if (mounted) setState(() => isConnected = 0);
+          }
+        } catch (_) {
+          initialIsConnected = 0;
+          if (mounted) setState(() => isConnected = 0);
+        }
+
+        if (!mounted) return;
+        // Close searching dialog
+        Navigator.of(context, rootNavigator: true).pop();
+
+        // Show status popup reflecting the result (non-closable when offline)
+        _showConnectionStatusDialog();
+      },
     );
   }
 

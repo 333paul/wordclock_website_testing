@@ -196,7 +196,7 @@ class _OfflineModeCardState extends State<OfflineModeCard> {
                     child: OutlinedButton(
                       onPressed:
                           enabled
-                              ? () => setState(() => _showManual = !_showManual)
+                              ? () => setState(() => _showManual = true)
                               : null,
                       style: ButtonStyle(
                         animationDuration: Duration.zero,

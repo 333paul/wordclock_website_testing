@@ -220,6 +220,11 @@ class _AutomationCardState extends State<AutomationCard> {
                                   _enabled
                                       ? (i) {
                                         _hourOn = i;
+                                        try {
+                                          widget.onOnTimeChanged(
+                                            _hourOn * 60 + _minuteOn,
+                                          );
+                                        } catch (_) {}
                                       }
                                       : null,
                               enabled: _enabled,
@@ -244,6 +249,11 @@ class _AutomationCardState extends State<AutomationCard> {
                                   _enabled
                                       ? (i) {
                                         _minuteOn = i;
+                                        try {
+                                          widget.onOnTimeChanged(
+                                            _hourOn * 60 + _minuteOn,
+                                          );
+                                        } catch (_) {}
                                       }
                                       : null,
                               enabled: _enabled,
@@ -279,6 +289,11 @@ class _AutomationCardState extends State<AutomationCard> {
                                   _enabled
                                       ? (i) {
                                         _hourOff = i;
+                                        try {
+                                          widget.onOffTimeChanged(
+                                            _hourOff * 60 + _minuteOff,
+                                          );
+                                        } catch (_) {}
                                       }
                                       : null,
                               enabled: _enabled,
@@ -303,6 +318,11 @@ class _AutomationCardState extends State<AutomationCard> {
                                   _enabled
                                       ? (i) {
                                         _minuteOff = i;
+                                        try {
+                                          widget.onOffTimeChanged(
+                                            _hourOff * 60 + _minuteOff,
+                                          );
+                                        } catch (_) {}
                                       }
                                       : null,
                               enabled: _enabled,
