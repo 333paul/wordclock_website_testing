@@ -10,6 +10,7 @@ import 'cards/card_alarm.dart' as alarm;
 import 'cards/card_automation.dart' as automation;
 import 'cards/card_offline_mode.dart' as offline;
 import 'services/esp_api.dart' as esp;
+import 'utils/restart_helper.dart';
 
 void main() {
   runApp(const MainApp());
@@ -18,6 +19,10 @@ void main() {
 // Startup / cross-widget connection state used while the splash runs.
 int initialIsConnected = -1; // -1 = unknown, 0 = not connected, 1 = connected
 bool _startupConnectionError = false;
+
+// Completer der signalisiert, dass die UI die ESP-Daten erfolgreich geladen
+// und gerendert hat. Der SplashScreen wartet darauf, bevor er verschwindet.
+final Completer<void> _uiReadyWithEspData = Completer<void>();
 
 // Startup discovery with extended timeout to ensure connection state is known
 // before showing the main UI. Uses waitForBase() which retries with backoff.
@@ -62,13 +67,10 @@ class MainApp extends StatelessWidget {
       title: 'WORDCLOCK',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
-      // Show splash screen with extended discovery timeout. The splash waits
-      // for getParametersFromESP() which uses waitForBase() with 10s timeout,
-      // ensuring connection state is known before showing the main UI.
+      // Simple splash: 10 seconds max. HomeScaffold handles connection dialog.
       home: SplashScreen(
         next: const HomeScaffold(),
         duration: const Duration(seconds: 10),
-        initFuture: getParametersFromESP(),
       ),
     );
   }
@@ -120,8 +122,21 @@ class _SplashScreenState extends State<SplashScreen> {
         } catch (_) {}
       }
 
-      final Future<void> waitForInit =
+      Future<void> waitForInit =
           widget.initFuture ?? Future.delayed(widget.duration);
+
+      // Apply timeout to initFuture to ensure we don't hang indefinitely
+      // if ESP connection or UI rendering fails.
+      if (widget.initFuture != null) {
+        waitForInit = waitForInit.timeout(
+          widget.duration,
+          onTimeout: () {
+            debugPrint(
+              '[SplashScreen] Timeout after ${widget.duration.inSeconds}s',
+            );
+          },
+        );
+      }
 
       // The initFuture (if provided) already calls getParametersFromESP(),
       // so we do NOT call it again here to avoid redundant discovery.
@@ -283,6 +298,13 @@ class _HomeScaffoldState extends State<HomeScaffold>
   late int _baseAlarmEnable;
   late int _baseAlarmTimeStunden;
   late int _baseAlarmTimeMinuten;
+  late int _baseTimerEnable;
+  late int _baseTimerAusloesungStunden;
+  late int _baseTimerAusloesungMinuten;
+  late int _baseTimerAusloesungSekunden;
+  late int _baseTimerDurationStunden;
+  late int _baseTimerDurationMinuten;
+  late int _baseTimerDurationSekunden;
   late int _baseOfflineMode;
   late int _baseAktsekunde;
   late int _baseAktminute;
@@ -374,6 +396,13 @@ class _HomeScaffoldState extends State<HomeScaffold>
     _baseAlarmEnable = alarmEnable;
     _baseAlarmTimeStunden = alarmTimeStunden;
     _baseAlarmTimeMinuten = alarmTimeMinuten;
+    _baseTimerEnable = timerEnable;
+    _baseTimerAusloesungStunden = timerAusloesungStunden;
+    _baseTimerAusloesungMinuten = timerAusloesungMinuten;
+    _baseTimerAusloesungSekunden = timerAusloesungSekunden;
+    _baseTimerDurationStunden = timerDurationStunden;
+    _baseTimerDurationMinuten = timerDurationMinuten;
+    _baseTimerDurationSekunden = timerDurationSekunden;
     _baseOfflineMode = offlineMode;
     _baseAktsekunde = aktsekunde;
     _baseAktminute = aktminute;
@@ -419,13 +448,93 @@ class _HomeScaffoldState extends State<HomeScaffold>
     // DEAKTIVIERT: Automatischer Logout nach Inaktivität
     // _resetInactivityTimer();
 
-    // After first frame, try to pull current parameters from ESP once
+    // Startup: Show "Suche ESP" dialog, then "Lade Daten" dialog
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncFromEspOnce();
-      // Show connection status popup after a short delay
-      Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+
+      // Show "Suche ESP im Netzwerk" dialog
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('Suche ESP im Netzwerk...'),
+              content: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Verbinde mit ESP32-Uhr...'),
+                ],
+              ),
+            ),
+      );
+
+      // Try to connect to ESP (10 second timeout)
+      Future.microtask(() async {
+        Uri? found = await esp.EspApi.waitForBase(
+          overallTimeout: const Duration(seconds: 10),
+        );
+
         if (!mounted) return;
-        _showConnectionStatusDialog();
+
+        if (found == null) {
+          // ESP not found - close search dialog and show error
+          Navigator.of(context).pop();
+          initialIsConnected = 0;
+          setState(() => isConnected = 0);
+          _showConnectionStatusDialog();
+          return;
+        }
+
+        // ESP found - close search dialog, show "Lade Daten" dialog
+        Navigator.of(context).pop();
+        initialIsConnected = 1;
+        setState(() => isConnected = 1);
+
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (ctx) => AlertDialog(
+                title: const Text('Laden...'),
+                content: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Lade Einstellungen vom ESP...'),
+                  ],
+                ),
+              ),
+        );
+
+        // Load data from ESP
+        try {
+          await _syncFromEspOnce();
+        } catch (e) {
+          debugPrint('[Startup] Daten-Laden fehlgeschlagen: $e');
+          initialIsConnected = 0;
+          setState(() => isConnected = 0);
+        }
+
+        // Close loading dialog
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+
+        // Wait for UI to render data, then show status
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  _showConnectionStatusDialog();
+                }
+              });
+            }
+          });
+        }
       });
     });
   }
@@ -618,33 +727,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
   }
 
   Future<void> _showConnectionStatusDialog() async {
-    // Fresh ping before showing the dialog to avoid stale startup flags.
-    try {
-      final base = await esp.EspApi.findBase(
-        cacheTimeout: const Duration(milliseconds: 600),
-        discoveryTimeout: const Duration(milliseconds: 1200),
-      );
-      if (base != null) {
-        initialIsConnected = 1;
-        if (mounted) {
-          setState(() {
-            isConnected = 1;
-          });
-        } else {
-          isConnected = 1;
-        }
-      } else {
-        initialIsConnected = 0;
-        if (mounted) {
-          setState(() {
-            isConnected = 0;
-          });
-        } else {
-          isConnected = 0;
-        }
-      }
-    } catch (_) {}
-
+    // Use the connection state from startup (already determined during splash)
     final bool connected = initialIsConnected == 1 || isConnected == 1;
     showDialog<void>(
       context: context,
@@ -707,17 +790,36 @@ class _HomeScaffoldState extends State<HomeScaffold>
                       );
 
                       // Perform a 20s discovery attempt
+                      // Nur als verbunden markieren wenn ALLE Schritte erfolgreich sind:
+                      // 1. ESP gefunden
+                      // 2. Daten vom ESP geladen
+                      // 3. UI die Daten darstellt
                       Uri? found;
+                      bool dataLoadedSuccessfully = false;
                       try {
                         found = await esp.EspApi.waitForBase(
                           overallTimeout: const Duration(seconds: 20),
                         );
                         if (found != null) {
-                          initialIsConnected = 1;
-                          if (mounted) setState(() => isConnected = 1);
+                          // ESP gefunden - jetzt Daten laden
                           try {
                             await _syncFromEspOnce();
-                          } catch (_) {}
+                            dataLoadedSuccessfully = true;
+                          } catch (e) {
+                            debugPrint(
+                              '[Retry] Daten-Laden fehlgeschlagen: $e',
+                            );
+                            dataLoadedSuccessfully = false;
+                          }
+
+                          // Nur als verbunden markieren wenn Daten erfolgreich geladen wurden
+                          if (dataLoadedSuccessfully) {
+                            initialIsConnected = 1;
+                            if (mounted) setState(() => isConnected = 1);
+                          } else {
+                            initialIsConnected = 0;
+                            if (mounted) setState(() => isConnected = 0);
+                          }
                         } else {
                           initialIsConnected = 0;
                           if (mounted) setState(() => isConnected = 0);
@@ -732,11 +834,16 @@ class _HomeScaffoldState extends State<HomeScaffold>
                         Navigator.of(context, rootNavigator: true).pop();
                       }
 
-                      // Show status again
+                      // Wait for UI to render the ESP data before showing status dialog
                       if (mounted) {
-                        Future.delayed(const Duration(milliseconds: 200), () {
-                          if (!mounted) return;
-                          _showConnectionStatusDialog();
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                _showConnectionStatusDialog();
+                              }
+                            });
+                          }
                         });
                       }
                     },
@@ -787,8 +894,17 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // "unsaved changes" state (`newChanges`).
   bool _computeNewChanges() {
     // Compare current values against the last confirmed (baseline) values.
-    if (ssid != _baseSsid) return true;
-    if (password != _basePassword) return true;
+
+    // Check offlineMode first - this is the primary change we care about
+    if (offlineMode != _baseOfflineMode) return true;
+
+    // When entering offline mode (offlineMode = 1), SSID/password are auto-cleared
+    // as a side effect. Only check them in normal mode (offlineMode = 0).
+    if (offlineMode == 0) {
+      if (ssid != _baseSsid) return true;
+      if (password != _basePassword) return true;
+    }
+
     if ((brightness - _baseBrightness).abs() > 0.01) return true;
     if (selectedColorRed != _baseSelectedColorRed) return true;
     if (selectedColorGreen != _baseSelectedColorGreen) return true;
@@ -805,7 +921,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
       if (displayOnMinuten != _baseDisplayOnMinuten) return true;
     }
     if (alarmEnable != _baseAlarmEnable) return true;
-    if (offlineMode != _baseOfflineMode) return true;
     if (notificationEnable != _baseNotificationEnable) return true;
     return false;
   }
@@ -831,15 +946,37 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // Centralized sender: shows a loading dialog while waiting for the ESP to
   // confirm receipt (HTTP 200/204). Gives up after 20 seconds and shows an
   // error dialog.
-  void sendParametersToESP({bool showFeedback = true}) {
+  void sendParametersToESP({
+    bool showFeedback = true,
+    VoidCallback? onSuccess,
+    bool forceRestart = false, // Force restart popup after success
+  }) {
     if (_sendingToEsp) return; // drop concurrent requests
     _sendingToEsp = true;
-    unawaited(_sendParametersToEspWithUi(showFeedback: showFeedback));
+    unawaited(
+      _sendParametersToEspWithUi(
+        showFeedback: showFeedback,
+        onSuccess: onSuccess,
+        forceRestart: forceRestart,
+      ),
+    );
   }
 
-  Future<void> _sendParametersToEspWithUi({required bool showFeedback}) async {
+  Future<void> _sendParametersToEspWithUi({
+    required bool showFeedback,
+    required bool forceRestart,
+    VoidCallback? onSuccess,
+  }) async {
     bool dialogOpen = false;
     bool requestComplete = false;
+
+    // Restart popup should only appear on explicit triggers:
+    // - Verbinden/Trennen (forceRestart)
+    // - Offline-Mode toggle from 0 -> 1 while credentials existed (SSID not empty)
+    final bool offlineModeRequiresRestart =
+        _baseOfflineMode == 0 &&
+        offlineMode == 1 &&
+        (_baseSsid.isNotEmpty || ssid.isNotEmpty);
 
     try {
       // Start the ESP request immediately
@@ -898,9 +1035,12 @@ class _HomeScaffoldState extends State<HomeScaffold>
       if (dialogOpen && mounted) {
         Navigator.of(context, rootNavigator: true).pop();
         dialogOpen = false;
-        // Small delay to let the dialog close before showing error
+        // Small delay to let the dialog close before showing next dialog
         await Future.delayed(const Duration(milliseconds: 200));
       }
+
+      // Determine if restart is needed
+      final bool needsRestart = forceRestart || offlineModeRequiresRestart;
 
       // Show error dialog if failed
       if (!success && showFeedback && mounted) {
@@ -923,6 +1063,60 @@ class _HomeScaffoldState extends State<HomeScaffold>
               ),
         );
       }
+
+      // Show success confirmation and potentially restart dialog
+      if (success && showFeedback && mounted) {
+        // Call success callback to update baselines
+        onSuccess?.call();
+
+        // Show success confirmation
+        await showDialog<void>(
+          context: context,
+          builder:
+              (ctx) => AlertDialog(
+                title: const Text('Erfolgreich'),
+                content: const Text(
+                  'Die Daten wurden erfolgreich übermittelt.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+        );
+
+        // After user closes success dialog, show restart dialog if needed
+        if (needsRestart && mounted) {
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder:
+                (ctx) => WillPopScope(
+                  onWillPop: () async => false,
+                  child: AlertDialog(
+                    title: const Text('Information'),
+                    content: const Text(
+                      'Verbinden Sie sich mit dem eingegebenen WLAN und starten Sie die App/Website neu.',
+                    ),
+                    actions: [
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _restartApp();
+                        },
+                        child: const Text('Neu starten'),
+                      ),
+                    ],
+                  ),
+                ),
+          );
+        }
+      } else if (success && onSuccess != null) {
+        // No feedback dialog but still update baselines
+        onSuccess.call();
+      }
     } finally {
       // Ensure dialog is closed and flag is reset
       if (dialogOpen && mounted) {
@@ -934,6 +1128,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
       }
       _sendingToEsp = false;
     }
+  }
+
+  void _restartApp() {
+    restartApp();
   }
 
   Future<bool> _pushParametersToEspOnce() async {
@@ -1191,35 +1389,40 @@ class _HomeScaffoldState extends State<HomeScaffold>
                             // confirmed defaults; hide the Apply button until they
                             // change again.
                             setState(() {
-                              // If offline mode is enabled, treat like disconnect
-                              if (offlineMode == 1) {
-                                loginsaved = 0;
-                                _baseSsid = '';
-                                _basePassword = '';
-                              } else {
-                                // Mark the entered SSID/password as confirmed
-                                _baseSsid = ssid;
-                                _basePassword = password;
-                                loginsaved =
-                                    1; // consider connection confirmed now
-                              }
-                              _baseBrightness = brightness;
-                              _baseSelectedColorRed = selectedColorRed;
-                              _baseSelectedColorGreen = selectedColorGreen;
-                              _baseSelectedColorBlue = selectedColorBlue;
-                              _baseEnableNightMode = enableNightMode;
-                              _baseDisplayOffStunden = displayOffStunden;
-                              _baseDisplayOffMinuten = displayOffMinuten;
-                              _baseDisplayOnStunden = displayOnStunden;
-                              _baseDisplayOnMinuten = displayOnMinuten;
-                              _baseAlarmEnable = alarmEnable;
-                              _baseAlarmTimeStunden = alarmTimeStunden;
-                              _baseAlarmTimeMinuten = alarmTimeMinuten;
-                              _baseOfflineMode = offlineMode;
-                              _baseNotificationEnable = notificationEnable;
                               newChanges = false;
                             });
-                            sendParametersToESP();
+                            sendParametersToESP(
+                              onSuccess: () {
+                                setState(() {
+                                  // If offline mode is enabled, treat like disconnect
+                                  if (offlineMode == 1) {
+                                    loginsaved = 0;
+                                    _baseSsid = '';
+                                    _basePassword = '';
+                                  } else {
+                                    // Mark the entered SSID/password as confirmed
+                                    _baseSsid = ssid;
+                                    _basePassword = password;
+                                    loginsaved =
+                                        1; // consider connection confirmed now
+                                  }
+                                  _baseBrightness = brightness;
+                                  _baseSelectedColorRed = selectedColorRed;
+                                  _baseSelectedColorGreen = selectedColorGreen;
+                                  _baseSelectedColorBlue = selectedColorBlue;
+                                  _baseEnableNightMode = enableNightMode;
+                                  _baseDisplayOffStunden = displayOffStunden;
+                                  _baseDisplayOffMinuten = displayOffMinuten;
+                                  _baseDisplayOnStunden = displayOnStunden;
+                                  _baseDisplayOnMinuten = displayOnMinuten;
+                                  _baseAlarmEnable = alarmEnable;
+                                  _baseAlarmTimeStunden = alarmTimeStunden;
+                                  _baseAlarmTimeMinuten = alarmTimeMinuten;
+                                  _baseOfflineMode = offlineMode;
+                                  _baseNotificationEnable = notificationEnable;
+                                });
+                              },
+                            );
                             // keep prior behaviour (close if possible)
                             Navigator.maybePop(context);
                           }),
@@ -1284,34 +1487,40 @@ class _HomeScaffoldState extends State<HomeScaffold>
                           newNotification = 0;
                         }
                         setState(() {
-                          // If offline mode is enabled, treat like disconnect
-                          if (offlineMode == 1) {
-                            loginsaved = 0;
-                            _baseSsid = '';
-                            _basePassword = '';
-                          } else {
-                            // Mark the entered SSID/password as confirmed
-                            _baseSsid = ssid;
-                            _basePassword = password;
-                            loginsaved = 1; // consider connection confirmed now
-                          }
-                          _baseBrightness = brightness;
-                          _baseSelectedColorRed = selectedColorRed;
-                          _baseSelectedColorGreen = selectedColorGreen;
-                          _baseSelectedColorBlue = selectedColorBlue;
-                          _baseEnableNightMode = enableNightMode;
-                          _baseDisplayOffStunden = displayOffStunden;
-                          _baseDisplayOffMinuten = displayOffMinuten;
-                          _baseDisplayOnStunden = displayOnStunden;
-                          _baseDisplayOnMinuten = displayOnMinuten;
-                          _baseAlarmEnable = alarmEnable;
-                          _baseAlarmTimeStunden = alarmTimeStunden;
-                          _baseAlarmTimeMinuten = alarmTimeMinuten;
-                          _baseOfflineMode = offlineMode;
-                          _baseNotificationEnable = notificationEnable;
                           newChanges = false;
                         });
-                        sendParametersToESP();
+                        sendParametersToESP(
+                          onSuccess: () {
+                            setState(() {
+                              // If offline mode is enabled, treat like disconnect
+                              if (offlineMode == 1) {
+                                loginsaved = 0;
+                                _baseSsid = '';
+                                _basePassword = '';
+                              } else {
+                                // Mark the entered SSID/password as confirmed
+                                _baseSsid = ssid;
+                                _basePassword = password;
+                                loginsaved =
+                                    1; // consider connection confirmed now
+                              }
+                              _baseBrightness = brightness;
+                              _baseSelectedColorRed = selectedColorRed;
+                              _baseSelectedColorGreen = selectedColorGreen;
+                              _baseSelectedColorBlue = selectedColorBlue;
+                              _baseEnableNightMode = enableNightMode;
+                              _baseDisplayOffStunden = displayOffStunden;
+                              _baseDisplayOffMinuten = displayOffMinuten;
+                              _baseDisplayOnStunden = displayOnStunden;
+                              _baseDisplayOnMinuten = displayOnMinuten;
+                              _baseAlarmEnable = alarmEnable;
+                              _baseAlarmTimeStunden = alarmTimeStunden;
+                              _baseAlarmTimeMinuten = alarmTimeMinuten;
+                              _baseOfflineMode = offlineMode;
+                              _baseNotificationEnable = notificationEnable;
+                            });
+                          },
+                        );
                         Navigator.maybePop(context);
                       },
                     )
@@ -1758,22 +1967,32 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                                 );
                                               }
                                             }),
-                                        onSetUtcTime:
-                                            (h, m, s) => setState(() {
-                                              aktstunde = h;
-                                              aktminute = m;
-                                              aktsekunde = s;
-                                              _baseAktstunde = aktstunde;
-                                              _baseAktminute = aktminute;
-                                              _baseAktsekunde = aktsekunde;
-                                              // Offline-Änderungen gelten als bestätigt, wenn Zeit jetzt gesendet wurde
-                                              _baseOfflineMode = offlineMode;
-                                              debugPrint(
-                                                'offline time set: $h:$m:$s',
-                                              );
-                                              sendParametersToESP();
-                                              newChanges = _computeNewChanges();
-                                            }),
+                                        onSetUtcTime: (h, m, s) {
+                                          setState(() {
+                                            aktstunde = h;
+                                            aktminute = m;
+                                            aktsekunde = s;
+                                            debugPrint(
+                                              'offline time set: $h:$m:$s',
+                                            );
+                                          });
+                                          sendParametersToESP(
+                                            onSuccess: () {
+                                              setState(() {
+                                                _baseAktstunde = aktstunde;
+                                                _baseAktminute = aktminute;
+                                                _baseAktsekunde = aktsekunde;
+                                                // Offline-Änderungen gelten als bestätigt, wenn Zeit jetzt gesendet wurde
+                                                _baseOfflineMode = offlineMode;
+                                                // Auch Verbindungs-Baselines aktualisieren
+                                                _baseSsid = ssid;
+                                                _basePassword = password;
+                                                newChanges =
+                                                    _computeNewChanges();
+                                              });
+                                            },
+                                          );
+                                        },
                                       ),
                                     ),
                                   ),
@@ -1801,22 +2020,31 @@ class _HomeScaffoldState extends State<HomeScaffold>
                                             );
                                           }
                                         }),
-                                    onSetUtcTime:
-                                        (h, m, s) => setState(() {
-                                          aktstunde = h;
-                                          aktminute = m;
-                                          aktsekunde = s;
-                                          _baseAktstunde = aktstunde;
-                                          _baseAktminute = aktminute;
-                                          _baseAktsekunde = aktsekunde;
-                                          // Offline-Änderungen gelten als bestätigt, wenn Zeit jetzt gesendet wurde
-                                          _baseOfflineMode = offlineMode;
-                                          debugPrint(
-                                            'offline time set: $h:$m:$s',
-                                          );
-                                          sendParametersToESP();
-                                          newChanges = _computeNewChanges();
-                                        }),
+                                    onSetUtcTime: (h, m, s) {
+                                      setState(() {
+                                        aktstunde = h;
+                                        aktminute = m;
+                                        aktsekunde = s;
+                                        debugPrint(
+                                          'offline time set: $h:$m:$s',
+                                        );
+                                      });
+                                      sendParametersToESP(
+                                        onSuccess: () {
+                                          setState(() {
+                                            _baseAktstunde = aktstunde;
+                                            _baseAktminute = aktminute;
+                                            _baseAktsekunde = aktsekunde;
+                                            // Offline-Änderungen gelten als bestätigt, wenn Zeit jetzt gesendet wurde
+                                            _baseOfflineMode = offlineMode;
+                                            // Auch Verbindungs-Baselines aktualisieren
+                                            _baseSsid = ssid;
+                                            _basePassword = password;
+                                            newChanges = _computeNewChanges();
+                                          });
+                                        },
+                                      );
+                                    },
                                   ),
                                 const SizedBox(height: 12),
                                 if (cardWidth != null)
@@ -1947,8 +2175,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
       ssidController: _ssidController,
       passwordController: _passwordController,
       onConnect: (newSsid, newPassword) async {
-        // Send credentials to ESP and show a blocking dialog while
-        // searching for the ESP (which may have switched to STA mode).
+        // Update state and send via standard send mechanism with restart
         setState(() {
           ssid = newSsid;
           password = newPassword;
@@ -1957,158 +2184,43 @@ class _HomeScaffoldState extends State<HomeScaffold>
           if (newSsid.isNotEmpty && newSsid.toLowerCase() != 'esp') {
             offlineMode = 0;
           }
+          newChanges = false; // Clear changes flag since we're sending
         });
 
-        debugPrint('[Connect] Sending credentials: ssid=$newSsid');
-
-        // Send parameters immediately from local state (no GET before send)
-        try {
-          final base = await esp.EspApi.findBase();
-          if (base != null) {
-            // Build complete parameter map with correct API field names
-            // Unbestätigte Notification-Änderung nicht mitsenden; nur Baseline
-            final int effectiveNotificationEnable =
-                (notificationEnable != _baseNotificationEnable && newChanges)
-                    ? _baseNotificationEnable
-                    : notificationEnable;
-
-            final fields = <String, String>{
-              // Connection
-              'LoginSaved': '1',
-              'ssid': newSsid,
-              'password': newPassword,
-              'powerOn': powerOn.toString(),
-              'isConnected': isConnected.toString(),
-              // Visualisation
-              'brightness': brightness.toString(),
-              'RGBValueRed': selectedColorRed.toString(),
-              'RGBValueGreen': selectedColorGreen.toString(),
-              'RGBValueBlue': selectedColorBlue.toString(),
-              // Automation
-              'EnableNightMode': enableNightMode.toString(),
-              'displayOnStunden': displayOnStunden.toString(),
-              'displayOnMinuten': displayOnMinuten.toString(),
-              'displayOffStunden': displayOffStunden.toString(),
-              'displayOffMinuten': displayOffMinuten.toString(),
-              // Alarm
-              'alarmEnable': alarmEnable.toString(),
-              'alarmTimeStunden': alarmTimeStunden.toString(),
-              'alarmTimeMinuten': alarmTimeMinuten.toString(),
-              // Timer
-              'timerEnable': timerEnable.toString(),
-              'timerAusloesungStunden': timerAusloesungStunden.toString(),
-              'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
-              'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
-              'timerDurationStunden': timerDurationStunden.toString(),
-              'timerDurationMinuten': timerDurationMinuten.toString(),
-              'timerDurationSekunden': timerDurationSekunden.toString(),
-              // Offline mode
-              'offlineMode': offlineMode.toString(),
-              'aktstunde': aktstunde.toString(),
-              'aktminute': aktminute.toString(),
-              'aktsekunde': aktsekunde.toString(),
-              // Notifications
-              'notificationEnable': effectiveNotificationEnable.toString(),
-              'newNotification': newNotification.toString(),
-            };
-
-            final ok = await esp.EspApi.sendParameters(base, fields);
-            debugPrint(
-              '[Connect] Parameters sent (ok=$ok); ESP may switch network...',
-            );
-          }
-        } catch (e) {
-          debugPrint('[Connect] Failed to send credentials: $e');
-        }
-
-        // Wait 10 seconds to allow the ESP to connect to the new Wi‑Fi
-        await Future.delayed(const Duration(seconds: 10));
-
-        // Show blocking "Searching..." dialog (20s discovery window)
-        if (!mounted) return;
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder:
-              (ctx) => WillPopScope(
-                onWillPop: () async => false,
-                child: const AlertDialog(
-                  title: Text('Suche WordClock...'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text(
-                        'Suche nach der WordClock im Netzwerk (max. 20 Sekunden)...',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-        );
-
-        // Search for ESP with a 20s window
-        Uri? foundBase;
-        try {
-          foundBase = await esp.EspApi.waitForBase(
-            overallTimeout: const Duration(seconds: 20),
-          );
-        } catch (e) {
-          debugPrint('[Connect] Discovery failed: $e');
-        }
-
-        // Close searching dialog
-        if (!mounted) return;
-        Navigator.of(context, rootNavigator: true).pop();
-
-        // Show result dialog
-        if (foundBase != null) {
-          debugPrint('[Connect] ESP found at $foundBase');
-          setState(() {
-            loginsaved = 1;
-            isConnected = 1;
-            _baseSsid = ssid;
-            _basePassword = password;
-            newChanges = _computeNewChanges();
-          });
-
-          // Fetch fresh parameters
-          try {
-            await _syncFromEspOnce();
-          } catch (e) {
-            debugPrint('[Connect] Failed to sync after connect: $e');
-          }
-
-          // Show success status popup
-          if (mounted) {
-            Future.delayed(const Duration(milliseconds: 200), () {
-              if (!mounted) return;
-              _showConnectionStatusDialog();
+        // Use standard send mechanism with forced restart
+        sendParametersToESP(
+          onSuccess: () {
+            setState(() {
+              loginsaved = 1;
+              isConnected = 1;
+              _baseSsid = ssid;
+              _basePassword = password;
+              _baseBrightness = brightness;
+              _baseSelectedColorRed = selectedColorRed;
+              _baseSelectedColorGreen = selectedColorGreen;
+              _baseSelectedColorBlue = selectedColorBlue;
+              _baseEnableNightMode = enableNightMode;
+              _baseDisplayOffStunden = displayOffStunden;
+              _baseDisplayOffMinuten = displayOffMinuten;
+              _baseDisplayOnStunden = displayOnStunden;
+              _baseDisplayOnMinuten = displayOnMinuten;
+              _baseAlarmEnable = alarmEnable;
+              _baseAlarmTimeStunden = alarmTimeStunden;
+              _baseAlarmTimeMinuten = alarmTimeMinuten;
+              _baseTimerEnable = timerEnable;
+              _baseTimerAusloesungStunden = timerAusloesungStunden;
+              _baseTimerAusloesungMinuten = timerAusloesungMinuten;
+              _baseTimerAusloesungSekunden = timerAusloesungSekunden;
+              _baseTimerDurationStunden = timerDurationStunden;
+              _baseTimerDurationMinuten = timerDurationMinuten;
+              _baseTimerDurationSekunden = timerDurationSekunden;
+              _baseOfflineMode = offlineMode;
+              _baseNotificationEnable = notificationEnable;
+              newChanges = _computeNewChanges();
             });
-          }
-        } else {
-          debugPrint('[Connect] ESP not found after 20s');
-          // Failure dialog
-          showDialog<void>(
-            context: context,
-            builder:
-                (ctx) => AlertDialog(
-                  title: const Text('Verbindung fehlgeschlagen'),
-                  content: const Text(
-                    'Die WordClock konnte im Netzwerk nicht gefunden werden. '
-                    'Bitte überprüfen Sie die Zugangsdaten und versuchen Sie es erneut.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
-          );
-        }
+          },
+          forceRestart: true, // Always restart after connect
+        );
       },
       onDisconnect: () async {
         // Clear canonical fields and controllers on disconnect
@@ -2118,69 +2230,42 @@ class _HomeScaffoldState extends State<HomeScaffold>
           password = '';
           _ssidController.clear();
           _passwordController.clear();
-          _baseSsid = '';
-          _basePassword = '';
-          newChanges = _computeNewChanges();
-          debugPrint('Disconnected -> cleared ssid/password');
+          newChanges = false; // Clear changes flag since we're sending
         });
 
-        // Inform ESP (fire-and-forget)
-        sendParametersToESP();
-
-        // Give the ESP time to switch modes/network
-        await Future.delayed(const Duration(seconds: 10));
-
-        if (!mounted) return;
-        // Show searching dialog (20s)
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder:
-              (ctx) => WillPopScope(
-                onWillPop: () async => false,
-                child: const AlertDialog(
-                  title: Text('Suche WordClock...'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text(
-                        'Suche nach der WordClock im Netzwerk (max. 20 Sekunden)...',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+        // Send disconnect via standard mechanism with forced restart
+        sendParametersToESP(
+          onSuccess: () {
+            setState(() {
+              isConnected = 0;
+              _baseSsid = '';
+              _basePassword = '';
+              _baseBrightness = brightness;
+              _baseSelectedColorRed = selectedColorRed;
+              _baseSelectedColorGreen = selectedColorGreen;
+              _baseSelectedColorBlue = selectedColorBlue;
+              _baseEnableNightMode = enableNightMode;
+              _baseDisplayOffStunden = displayOffStunden;
+              _baseDisplayOffMinuten = displayOffMinuten;
+              _baseDisplayOnStunden = displayOnStunden;
+              _baseDisplayOnMinuten = displayOnMinuten;
+              _baseAlarmEnable = alarmEnable;
+              _baseAlarmTimeStunden = alarmTimeStunden;
+              _baseAlarmTimeMinuten = alarmTimeMinuten;
+              _baseTimerEnable = timerEnable;
+              _baseTimerAusloesungStunden = timerAusloesungStunden;
+              _baseTimerAusloesungMinuten = timerAusloesungMinuten;
+              _baseTimerAusloesungSekunden = timerAusloesungSekunden;
+              _baseTimerDurationStunden = timerDurationStunden;
+              _baseTimerDurationMinuten = timerDurationMinuten;
+              _baseTimerDurationSekunden = timerDurationSekunden;
+              _baseOfflineMode = offlineMode;
+              _baseNotificationEnable = notificationEnable;
+              newChanges = _computeNewChanges();
+            });
+          },
+          forceRestart: true, // Always restart after disconnect
         );
-
-        // Attempt discovery (20s)
-        try {
-          final found = await esp.EspApi.waitForBase(
-            overallTimeout: const Duration(seconds: 20),
-          );
-          if (found != null) {
-            initialIsConnected = 1;
-            if (mounted) setState(() => isConnected = 1);
-            try {
-              await _syncFromEspOnce();
-            } catch (_) {}
-          } else {
-            initialIsConnected = 0;
-            if (mounted) setState(() => isConnected = 0);
-          }
-        } catch (_) {
-          initialIsConnected = 0;
-          if (mounted) setState(() => isConnected = 0);
-        }
-
-        if (!mounted) return;
-        // Close searching dialog
-        Navigator.of(context, rootNavigator: true).pop();
-
-        // Show status popup reflecting the result (non-closable when offline)
-        _showConnectionStatusDialog();
       },
     );
   }
