@@ -1064,31 +1064,13 @@ class _HomeScaffoldState extends State<HomeScaffold>
         );
       }
 
-      // Show success confirmation and potentially restart dialog
-      if (success && showFeedback && mounted) {
+      // Handle success: call callback and potentially show restart dialog
+      if (success && mounted) {
         // Call success callback to update baselines
         onSuccess?.call();
 
-        // Show success confirmation
-        await showDialog<void>(
-          context: context,
-          builder:
-              (ctx) => AlertDialog(
-                title: const Text('Erfolgreich'),
-                content: const Text(
-                  'Die Daten wurden erfolgreich übermittelt.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              ),
-        );
-
-        // After user closes success dialog, show restart dialog if needed
-        if (needsRestart && mounted) {
+        // After success, show restart dialog if needed
+        if (needsRestart && showFeedback) {
           showDialog<void>(
             context: context,
             barrierDismissible: false,
@@ -1113,9 +1095,6 @@ class _HomeScaffoldState extends State<HomeScaffold>
                 ),
           );
         }
-      } else if (success && onSuccess != null) {
-        // No feedback dialog but still update baselines
-        onSuccess.call();
       }
     } finally {
       // Ensure dialog is closed and flag is reset
