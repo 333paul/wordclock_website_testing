@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'dart:io' as dart_io;
 import 'cards/card_visualisation.dart' as visual;
 import 'cards/card_connections.dart' as conn;
 import 'cards/card_notification.dart' as notif;
@@ -979,11 +980,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
         (_baseSsid.isNotEmpty || ssid.isNotEmpty);
 
     try {
-      // Start the ESP request immediately
-      final requestFuture = _pushParametersToEspOnce().timeout(
-        const Duration(seconds: 20),
-        onTimeout: () => false,
-      );
+      // Standard-Timeout: 20s, bei erneutem Versuch 40s
+      final int timeoutSeconds = showFeedback ? 20 : 40;
+      final requestFuture = _pushParametersToEspOnce(
+        customTimeout: Duration(seconds: timeoutSeconds),
+      ).timeout(Duration(seconds: timeoutSeconds), onTimeout: () => false);
 
       // Show dialog only if request takes longer than 0.5 seconds
       if (showFeedback && mounted) {
@@ -1046,6 +1047,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
       if (!success && showFeedback && mounted) {
         showDialog<void>(
           context: context,
+          barrierDismissible: false,
           builder:
               (ctx) => AlertDialog(
                 title: const Text('Fehler'),
@@ -1058,6 +1060,23 @@ class _HomeScaffoldState extends State<HomeScaffold>
                   TextButton(
                     onPressed: () => Navigator.of(ctx).pop(),
                     child: const Text('OK'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.of(ctx).pop();
+                      // Zeige erneut den Lade-Dialog beim erneuten Versuch
+                      _sendingToEsp = true;
+                      sendParametersToESP(
+                        showFeedback: true,
+                        forceRestart: forceRestart,
+                        onSuccess: onSuccess,
+                      );
+                    },
+                    child: const Text('Erneut versuchen'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueGrey,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ],
               ),
@@ -1086,7 +1105,13 @@ class _HomeScaffoldState extends State<HomeScaffold>
                       ElevatedButton(
                         onPressed: () {
                           Navigator.of(ctx).pop();
-                          _restartApp();
+                          // On Windows: just close the app
+                          if (Theme.of(ctx).platform ==
+                              TargetPlatform.windows) {
+                            dart_io.exit(0);
+                          } else {
+                            _restartApp();
+                          }
                         },
                         child: const Text('Neu starten'),
                       ),
@@ -1113,12 +1138,15 @@ class _HomeScaffoldState extends State<HomeScaffold>
     restartApp();
   }
 
-  Future<bool> _pushParametersToEspOnce() async {
+  Future<bool> _pushParametersToEspOnce({Duration? customTimeout}) async {
     try {
-      // Limit discovery per call so the overall wait stays within 20 seconds.
+      // Limit discovery per call so the overall wait stays within timeout.
       final base = await esp.EspApi.findBase(
         discoveryTimeout: const Duration(seconds: 3),
-      ).timeout(const Duration(seconds: 10), onTimeout: () => null);
+      ).timeout(
+        customTimeout ?? const Duration(seconds: 10),
+        onTimeout: () => null,
+      );
 
       if (base == null) {
         debugPrint('sendParametersToESP: ESP not found');

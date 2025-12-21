@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io' show Platform;
 
 /// Modern visualisation card:
 /// - "Darstellung" title
@@ -234,68 +235,105 @@ class _VisualisationCardState extends State<VisualisationCard> {
                   ),
                   const SizedBox(height: 8),
 
-                  SizedBox(
-                    height: 58, // compact
-                    child: ListView.builder(
-                      controller: _swatchScrollController,
-                      scrollDirection: Axis.horizontal,
-                      physics: const ClampingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      itemCount: _totalSwatches,
-                      itemBuilder: (context, i) {
-                        final int idx = i % _colors.length;
-                        final Color currentColor =
-                            widget.colorNotifier?.value ?? widget.color;
-                        final bool selected =
-                            currentColor.value == _colors[idx].value;
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(10),
-                              onTap: () {
-                                final Color chosen = _colors[idx];
-                                if (widget.colorNotifier != null) {
-                                  widget.colorNotifier!.value = chosen;
-                                } else {
-                                  widget.onColorChanged(chosen);
-                                }
-                              },
-                              child: Ink(
-                                width: _swatchSize,
-                                height: _swatchSize,
-                                decoration: BoxDecoration(
-                                  color: _colors[idx],
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color:
-                                        selected
-                                            ? Colors.black
-                                            : Colors.black26,
-                                    width: selected ? 2 : 1,
+                  Row(
+                    children: [
+                      if (Platform.isWindows)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_left),
+                          tooltip: 'Zurück',
+                          onPressed: () {
+                            final double offset =
+                                _swatchScrollController.offset - _swatchExtent;
+                            _swatchScrollController.animateTo(
+                              offset < 0 ? 0 : offset,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOut,
+                            );
+                          },
+                        ),
+                      Expanded(
+                        child: SizedBox(
+                          height: 58, // compact
+                          child: ListView.builder(
+                            controller: _swatchScrollController,
+                            scrollDirection: Axis.horizontal,
+                            physics: const ClampingScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            itemCount: _totalSwatches,
+                            itemBuilder: (context, i) {
+                              final int idx = i % _colors.length;
+                              final Color currentColor =
+                                  widget.colorNotifier?.value ?? widget.color;
+                              final bool selected =
+                                  currentColor.value == _colors[idx].value;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(10),
+                                    onTap: () {
+                                      final Color chosen = _colors[idx];
+                                      if (widget.colorNotifier != null) {
+                                        widget.colorNotifier!.value = chosen;
+                                      } else {
+                                        widget.onColorChanged(chosen);
+                                      }
+                                    },
+                                    child: Ink(
+                                      width: _swatchSize,
+                                      height: _swatchSize,
+                                      decoration: BoxDecoration(
+                                        color: _colors[idx],
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color:
+                                              selected
+                                                  ? Colors.black
+                                                  : Colors.black26,
+                                          width: selected ? 2 : 1,
+                                        ),
+                                      ),
+                                      child:
+                                          selected
+                                              ? Icon(
+                                                Icons.check,
+                                                color:
+                                                    _colors[idx].computeLuminance() >
+                                                            0.6
+                                                        ? Colors.black
+                                                        : Colors.white,
+                                              )
+                                              : null,
+                                    ),
                                   ),
                                 ),
-                                child:
-                                    selected
-                                        ? Icon(
-                                          Icons.check,
-                                          // choose icon color with contrast against
-                                          // the swatch color so the check remains
-                                          // visible on light backgrounds (e.g. white)
-                                          color:
-                                              _colors[idx].computeLuminance() >
-                                                      0.6
-                                                  ? Colors.black
-                                                  : Colors.white,
-                                        )
-                                        : null,
-                              ),
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      ),
+                      if (Platform.isWindows)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_right),
+                          tooltip: 'Weiter',
+                          onPressed: () {
+                            final double maxScroll =
+                                _swatchScrollController
+                                    .position
+                                    .maxScrollExtent;
+                            final double offset =
+                                _swatchScrollController.offset + _swatchExtent;
+                            _swatchScrollController.animateTo(
+                              offset > maxScroll ? maxScroll : offset,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOut,
+                            );
+                          },
+                        ),
+                    ],
                   ),
                 ],
               ),

@@ -129,7 +129,7 @@ class _EspWifiCardState extends State<EspWifiCard> {
               const SizedBox(height: 8),
             ] else ...[
               const Text(
-                'SSID "ESP" für Betrieb im Access-Point-Modus.',
+                'Access-Point-Modus: Verbindung mit SSID "WordClock".',
                 style: TextStyle(color: Colors.black54),
               ),
               const Divider(height: 20, thickness: 1),
