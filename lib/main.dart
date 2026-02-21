@@ -28,35 +28,11 @@ final Completer<void> _uiReadyWithEspData = Completer<void>();
 // Startup discovery with extended timeout to ensure connection state is known
 // before showing the main UI. Uses waitForBase() which retries with backoff.
 Future<void> getParametersFromESP() async {
-  try {
-    debugPrint('[Startup] Searching for ESP with extended timeout...');
-    final base = await esp.EspApi.waitForBase(
-      overallTimeout: const Duration(seconds: 10),
-    );
-    if (base == null) {
-      initialIsConnected = 0;
-      _startupConnectionError = false;
-      debugPrint('[Startup] ESP not found after extended search');
-      return;
-    }
-    // Discovery succeeded -> consider connected immediately.
-    initialIsConnected = 1;
-    _startupConnectionError = false;
-    debugPrint('[Startup] Connected via ${base.toString()}');
-    // Try to fetch parameters to hydrate state, but do not downgrade
-    // the connection flag if hydration fails. This avoids showing
-    // "Nicht verbunden" when only the parameter fetch fails.
-    try {
-      await esp.EspApi.fetchParameters(base);
-      debugPrint('[Startup] Parameters fetched successfully');
-    } catch (e) {
-      debugPrint('[Startup] Hydration (parameters) failed: $e');
-    }
-  } catch (e) {
-    initialIsConnected = 0;
-    _startupConnectionError = false;
-    debugPrint('[Startup] Discovery failed: $e');
-  }
+  // ESP-Kommunikation deaktiviert: Funktion übersprungen
+  debugPrint('[Startup] ESP-Kommunikation deaktiviert.');
+  initialIsConnected = 0;
+  _startupConnectionError = false;
+  return;
 }
 
 class MainApp extends StatelessWidget {
@@ -196,10 +172,7 @@ class _HomeScaffoldState extends State<HomeScaffold>
   // Rückrechnung der Werte auslösen (sonst würden die frisch geladenen
   // Farbwerte doppelt skaliert und verfälscht).
   bool _hydratingFromEsp = false;
-  // MethodChannel für NotificationListenerService
-  static const MethodChannel _notifChannel = MethodChannel(
-    'notification_permission_channel',
-  );
+  // Notification-Plugin deaktiviert für Web/Desktop-Test
   // Track whether the preview image has been painted at least once. While
   // false we keep the scaffold background dark to avoid a brief white flash
   // when transitioning from the splash screen.
@@ -314,37 +287,14 @@ class _HomeScaffoldState extends State<HomeScaffold>
 
   // Handler für NotificationListenerService-Status
   Future<void> _handleNotificationStatusChanged(MethodCall call) async {
-    if (call.method != 'onNotificationStatusChanged') return;
-    final bool hasNotification = call.arguments == true;
-
-    // Nur dann direkt an den ESP senden, wenn Notifications bereits
-    // bestätigt aktiv sind (d.h. per Übernehmen an den ESP gesendet).
-    final bool notificationsArmed =
-        notificationEnable == 1 && _baseNotificationEnable == 1;
-
-    if (notificationsArmed) {
-      if (hasNotification && newNotification != 1) {
-        setState(() => newNotification = 1);
-        sendParametersToESP(showFeedback: false);
-      } else if (!hasNotification && newNotification != 0) {
-        setState(() => newNotification = 0);
-        sendParametersToESP(showFeedback: false);
-      }
-      return;
-    }
-
-    // Falls Notifications nicht (bestätigt) aktiv sind: nur lokal zurücksetzen,
-    // nichts senden.
-    if (newNotification != 0) {
-      setState(() => newNotification = 0);
-    }
+    // Notification-Plugin deaktiviert: keine Aktion
+    return;
   }
 
   @override
   void initState() {
     super.initState();
-    // Android NotificationListenerService-Status abonnieren
-    _notifChannel.setMethodCallHandler(_handleNotificationStatusChanged);
+    // Notification-Plugin deaktiviert
 
     // Observe app lifecycle so we can cancel the timer if the app/web page
     // is backgrounded or closed.
@@ -355,15 +305,11 @@ class _HomeScaffoldState extends State<HomeScaffold>
     // user interaction (slider drag / swatch tap). The listeners update the
     // canonical ints stored here but intentionally do not call setState.
 
-    // Initialize the visual card with the raw RGB values (no brightness
-    // pre-scaling). The ESP expects the unscaled color channels; brightness
-    // is sent separately via the dedicated field.
-    final int initR = selectedColorRed.clamp(0, 255).toInt();
-    final int initG = selectedColorGreen.clamp(0, 255).toInt();
-    final int initB = selectedColorBlue.clamp(0, 255).toInt();
-    colorNotifier = ValueNotifier<Color>(
-      Color.fromARGB(255, initR, initG, initB),
-    );
+    // Beim ersten Start: Visualisierung auf weiß setzen (wie Klick auf weiß)
+    selectedColorRed = 255;
+    selectedColorGreen = 255;
+    selectedColorBlue = 255;
+    colorNotifier = ValueNotifier<Color>(Color.fromARGB(255, 255, 255, 255));
     colorNotifier!.addListener(_colorNotifierListener);
     // initialize brightness notifier and register listener so the visual
     // card can update the canonical brightness value without full rebuilds
@@ -449,95 +395,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
     // DEAKTIVIERT: Automatischer Logout nach Inaktivität
     // _resetInactivityTimer();
 
-    // Startup: Show "Suche ESP" dialog, then "Lade Daten" dialog
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      // Show "Suche ESP im Netzwerk" dialog
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder:
-            (ctx) => AlertDialog(
-              title: const Text('Suche ESP im Netzwerk...'),
-              content: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Verbinde mit ESP32-Uhr...'),
-                ],
-              ),
-            ),
-      );
-
-      // Try to connect to ESP (10 second timeout)
-      Future.microtask(() async {
-        Uri? found = await esp.EspApi.waitForBase(
-          overallTimeout: const Duration(seconds: 10),
-        );
-
-        if (!mounted) return;
-
-        if (found == null) {
-          // ESP not found - close search dialog and show error
-          Navigator.of(context).pop();
-          initialIsConnected = 0;
-          setState(() => isConnected = 0);
-          _showConnectionStatusDialog();
-          return;
-        }
-
-        // ESP found - close search dialog, show "Lade Daten" dialog
-        Navigator.of(context).pop();
-        initialIsConnected = 1;
-        setState(() => isConnected = 1);
-
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder:
-              (ctx) => AlertDialog(
-                title: const Text('Laden...'),
-                content: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Lade Einstellungen vom ESP...'),
-                  ],
-                ),
-              ),
-        );
-
-        // Load data from ESP
-        try {
-          await _syncFromEspOnce();
-        } catch (e) {
-          debugPrint('[Startup] Daten-Laden fehlgeschlagen: $e');
-          initialIsConnected = 0;
-          setState(() => isConnected = 0);
-        }
-
-        // Close loading dialog
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-
-        // Wait for UI to render data, then show status
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  _showConnectionStatusDialog();
-                }
-              });
-            }
-          });
-        }
-      });
-    });
+    // Startup: Keine ESP-Kommunikation, keine Dialoge, direkt App anzeigen
+    initialIsConnected = 0;
+    isConnected = 0;
   }
 
   // DEAKTIVIERT: Automatischer Logout nach Inaktivität
@@ -952,15 +812,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
     VoidCallback? onSuccess,
     bool forceRestart = false, // Force restart popup after success
   }) {
-    if (_sendingToEsp) return; // drop concurrent requests
-    _sendingToEsp = true;
-    unawaited(
-      _sendParametersToEspWithUi(
-        showFeedback: showFeedback,
-        onSuccess: onSuccess,
-        forceRestart: forceRestart,
-      ),
-    );
+    // ESP-Kommunikation komplett deaktiviert: keine Aktion
+    debugPrint('ESP-Kommunikation deaktiviert (sendParametersToESP)');
+    if (onSuccess != null) onSuccess();
   }
 
   Future<void> _sendParametersToEspWithUi({
@@ -968,170 +822,10 @@ class _HomeScaffoldState extends State<HomeScaffold>
     required bool forceRestart,
     VoidCallback? onSuccess,
   }) async {
-    bool dialogOpen = false;
-    bool requestComplete = false;
-
-    // Restart popup should only appear on explicit triggers:
-    // - Verbinden/Trennen (forceRestart)
-    // - Offline-Mode toggle from 0 -> 1 while credentials existed (SSID not empty)
-    final bool offlineModeRequiresRestart =
-        _baseOfflineMode == 0 &&
-        offlineMode == 1 &&
-        (_baseSsid.isNotEmpty || ssid.isNotEmpty);
-
-    try {
-      // Standard-Timeout: 20s, bei erneutem Versuch 40s
-      final int timeoutSeconds = showFeedback ? 20 : 40;
-      final requestFuture = _pushParametersToEspOnce(
-        customTimeout: Duration(seconds: timeoutSeconds),
-      ).timeout(Duration(seconds: timeoutSeconds), onTimeout: () => false);
-
-      // Show dialog only if request takes longer than 0.5 seconds
-      if (showFeedback && mounted) {
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (!requestComplete && mounted) {
-            try {
-              showDialog<void>(
-                context: context,
-                barrierDismissible: false,
-                builder:
-                    (ctx) => WillPopScope(
-                      onWillPop: () async => false,
-                      child: const AlertDialog(
-                        title: Text('Lade...'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 16),
-                            Text(
-                              'Sende Daten zur WordClock...',
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-              );
-              dialogOpen = true;
-            } catch (e) {
-              debugPrint('sendParametersToESP dialog failed: $e');
-            }
-          }
-        });
-      }
-
-      // Wait for ESP response
-      bool success = false;
-      try {
-        success = await requestFuture;
-      } catch (e) {
-        debugPrint('sendParametersToESP error: $e');
-        success = false;
-      } finally {
-        requestComplete = true;
-      }
-
-      // Close loading dialog if it was opened
-      if (dialogOpen && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-        dialogOpen = false;
-        // Small delay to let the dialog close before showing next dialog
-        await Future.delayed(const Duration(milliseconds: 200));
-      }
-
-      // Determine if restart is needed
-      final bool needsRestart = forceRestart || offlineModeRequiresRestart;
-
-      // Show error dialog if failed
-      if (!success && showFeedback && mounted) {
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder:
-              (ctx) => AlertDialog(
-                title: const Text('Fehler'),
-                content: const Text(
-                  'Die Daten konnten nicht übermittelt werden.\n\n'
-                  'Die WordClock hat den Empfang nicht bestätigt. Bitte '
-                  'Verbindung prüfen und erneut versuchen.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('OK'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      Navigator.of(ctx).pop();
-                      // Zeige erneut den Lade-Dialog beim erneuten Versuch
-                      _sendingToEsp = true;
-                      sendParametersToESP(
-                        showFeedback: true,
-                        forceRestart: forceRestart,
-                        onSuccess: onSuccess,
-                      );
-                    },
-                    child: const Text('Erneut versuchen'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueGrey,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-        );
-      }
-
-      // Handle success: call callback and potentially show restart dialog
-      if (success && mounted) {
-        // Call success callback to update baselines
-        onSuccess?.call();
-
-        // After success, show restart dialog if needed
-        if (needsRestart && showFeedback) {
-          showDialog<void>(
-            context: context,
-            barrierDismissible: false,
-            builder:
-                (ctx) => WillPopScope(
-                  onWillPop: () async => false,
-                  child: AlertDialog(
-                    title: const Text('Information'),
-                    content: const Text(
-                      'Verbinden Sie sich mit dem eingegebenen WLAN und starten Sie die App/Website neu.',
-                    ),
-                    actions: [
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          // On Windows: just close the app
-                          if (Theme.of(ctx).platform ==
-                              TargetPlatform.windows) {
-                            dart_io.exit(0);
-                          } else {
-                            _restartApp();
-                          }
-                        },
-                        child: const Text('Neu starten'),
-                      ),
-                    ],
-                  ),
-                ),
-          );
-        }
-      }
-    } finally {
-      // Ensure dialog is closed and flag is reset
-      if (dialogOpen && mounted) {
-        try {
-          Navigator.of(context, rootNavigator: true).pop();
-        } catch (e) {
-          debugPrint('Error closing dialog: $e');
-        }
-      }
-      _sendingToEsp = false;
-    }
+    // ESP-Kommunikation komplett deaktiviert: keine Aktion, keine Dialoge
+    debugPrint('ESP-Kommunikation deaktiviert (_sendParametersToEspWithUi)');
+    if (onSuccess != null) onSuccess();
+    return;
   }
 
   void _restartApp() {
@@ -1139,78 +833,9 @@ class _HomeScaffoldState extends State<HomeScaffold>
   }
 
   Future<bool> _pushParametersToEspOnce({Duration? customTimeout}) async {
-    try {
-      // Limit discovery per call so the overall wait stays within timeout.
-      final base = await esp.EspApi.findBase(
-        discoveryTimeout: const Duration(seconds: 3),
-      ).timeout(
-        customTimeout ?? const Duration(seconds: 10),
-        onTimeout: () => null,
-      );
-
-      if (base == null) {
-        debugPrint('sendParametersToESP: ESP not found');
-        return false;
-      }
-
-      // If we can reach the ESP, treat it as connected locally.
-      initialIsConnected = 1;
-      isConnected = 1;
-
-      // Capture the current timestamp immediately before sending
-      final now = DateTime.now().millisecondsSinceEpoch;
-
-      // Pending, unbestätigte Notification-Änderungen sollen nicht
-      // unabsichtlich mitgeschickt werden (nur via Apply). Deshalb
-      // wird während offener Änderungen der bestätigte Baseline-Wert
-      // verwendet.
-      final int effectiveNotificationEnable =
-          (notificationEnable != _baseNotificationEnable && newChanges)
-              ? _baseNotificationEnable
-              : notificationEnable;
-
-      final Map<String, String> fields = {
-        'powerOn': powerOn.toString(),
-        'isConnected': isConnected.toString(),
-        'loginSaved': loginsaved.toString(),
-        'ssid': ssid,
-        'password': password,
-        'brightness': brightness.toString(),
-        // map UI color into ESP RGB fields
-        'RGBValueRed': selectedColorRed.toString(),
-        'RGBValueGreen': selectedColorGreen.toString(),
-        'RGBValueBlue': selectedColorBlue.toString(),
-        'EnableNightMode': enableNightMode.toString(),
-        'displayOnStunden': displayOnStunden.toString(),
-        'displayOnMinuten': displayOnMinuten.toString(),
-        'displayOffStunden': displayOffStunden.toString(),
-        'displayOffMinuten': displayOffMinuten.toString(),
-        'alarmEnable': alarmEnable.toString(),
-        'alarmTimeStunden': alarmTimeStunden.toString(),
-        'alarmTimeMinuten': alarmTimeMinuten.toString(),
-        'timerEnable': timerEnable.toString(),
-        'timerDurationStunden': timerDurationStunden.toString(),
-        'timerDurationMinuten': timerDurationMinuten.toString(),
-        'timerDurationSekunden': timerDurationSekunden.toString(),
-        'timerAusloesungStunden': timerAusloesungStunden.toString(),
-        'timerAusloesungMinuten': timerAusloesungMinuten.toString(),
-        'timerAusloesungSekunden': timerAusloesungSekunden.toString(),
-        'offlineMode': offlineMode.toString(),
-        'aktstunde': aktstunde.toString(),
-        'aktminute': aktminute.toString(),
-        'aktsekunde': aktsekunde.toString(),
-        'sendTimeMillis': now.toString(),
-        'notificationEnable': effectiveNotificationEnable.toString(),
-        'newNotification': newNotification.toString(),
-      };
-
-      final ok = await esp.EspApi.sendParameters(base, fields);
-      if (!ok) debugPrint('sendParametersToESP: POST failed');
-      return ok;
-    } catch (e) {
-      debugPrint('sendParametersToESP error: $e');
-      return false;
-    }
+    // ESP-Kommunikation komplett deaktiviert: keine Aktion
+    debugPrint('ESP-Kommunikation deaktiviert (_pushParametersToEspOnce)');
+    return false;
   }
 
   @override

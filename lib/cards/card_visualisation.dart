@@ -237,20 +237,20 @@ class _VisualisationCardState extends State<VisualisationCard> {
 
                   Row(
                     children: [
-                      if (Platform.isWindows)
-                        IconButton(
-                          icon: const Icon(Icons.arrow_left),
-                          tooltip: 'Zurück',
-                          onPressed: () {
-                            final double offset =
-                                _swatchScrollController.offset - _swatchExtent;
-                            _swatchScrollController.animateTo(
-                              offset < 0 ? 0 : offset,
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOut,
-                            );
-                          },
-                        ),
+                      // if (Platform.isWindows) // deaktiviert
+                      IconButton(
+                        icon: const Icon(Icons.arrow_left),
+                        tooltip: 'Zurück',
+                        onPressed: () {
+                          final double offset =
+                              _swatchScrollController.offset - _swatchExtent;
+                          _swatchScrollController.animateTo(
+                            offset < 0 ? 0 : offset,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOut,
+                          );
+                        },
+                      ),
                       Expanded(
                         child: SizedBox(
                           height: 58, // compact
@@ -315,24 +315,22 @@ class _VisualisationCardState extends State<VisualisationCard> {
                           ),
                         ),
                       ),
-                      if (Platform.isWindows)
-                        IconButton(
-                          icon: const Icon(Icons.arrow_right),
-                          tooltip: 'Weiter',
-                          onPressed: () {
-                            final double maxScroll =
-                                _swatchScrollController
-                                    .position
-                                    .maxScrollExtent;
-                            final double offset =
-                                _swatchScrollController.offset + _swatchExtent;
-                            _swatchScrollController.animateTo(
-                              offset > maxScroll ? maxScroll : offset,
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOut,
-                            );
-                          },
-                        ),
+                      // if (Platform.isWindows) // deaktiviert
+                      IconButton(
+                        icon: const Icon(Icons.arrow_right),
+                        tooltip: 'Weiter',
+                        onPressed: () {
+                          final double maxScroll =
+                              _swatchScrollController.position.maxScrollExtent;
+                          final double offset =
+                              _swatchScrollController.offset + _swatchExtent;
+                          _swatchScrollController.animateTo(
+                            offset > maxScroll ? maxScroll : offset,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOut,
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ],

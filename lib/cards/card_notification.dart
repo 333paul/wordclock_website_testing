@@ -23,6 +23,7 @@ class _NotificationCardState extends State<NotificationCard> {
   static const MethodChannel _platform = MethodChannel(
     'notification_permission_channel',
   );
+  // Notification-Plugin deaktiviert für Web/Desktop-Test
 
   @override
   void initState() {
@@ -31,18 +32,18 @@ class _NotificationCardState extends State<NotificationCard> {
 
     // Permission-Check erst nach dem ersten Frame starten
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkPermission();
+      // _checkPermission(); // deaktiviert
     });
   }
 
   Future<void> _checkPermission() async {
     try {
-      final bool hasPermission = await _platform.invokeMethod(
-        'checkPermission',
-      );
+      // final bool hasPermission = await _platform.invokeMethod(
+      //   'checkPermission',
+      // );
       if (!mounted) return;
       setState(() {
-        _hasPermission = hasPermission;
+        _hasPermission = false; // Deaktiviert
       });
     } catch (e) {
       debugPrint('Notification permission check failed: $e');
@@ -78,13 +79,13 @@ class _NotificationCardState extends State<NotificationCard> {
                   onPressed: () async {
                     Navigator.of(ctx).pop();
                     try {
-                      await _platform.invokeMethod('openSettings');
+                      // await _platform.invokeMethod('openSettings'); // deaktiviert
                     } catch (e) {
                       debugPrint('Fehler beim Öffnen der Einstellungen: $e');
                     }
                     // Warte kurz, dann prüfe erneut
                     await Future.delayed(const Duration(milliseconds: 500));
-                    await _checkPermission();
+                    // await _checkPermission(); // deaktiviert
                     if (_hasPermission && mounted) {
                       setState(() {
                         _enabled = true;
@@ -113,7 +114,8 @@ class _NotificationCardState extends State<NotificationCard> {
   @override
   Widget build(BuildContext context) {
     // Nur auf Android anzeigen, sonst gar nichts rendern
-    if (kIsWeb || !Platform.isAndroid) return const SizedBox.shrink();
+    // Immer anzeigen, keine Plattformprüfung
+    // if (kIsWeb || !Platform.isAndroid) return const SizedBox.shrink();
     return Card(
       color: Colors.white,
       elevation: 1,
